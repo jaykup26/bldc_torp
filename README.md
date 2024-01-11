@@ -1,3 +1,11 @@
+This repo is meant to be a comparison of the VESC v5.02 firmware code vs the current Torp TC500 controller firmware. The Torp TC500 is a drop in replacement for the stock Surron controller so has extra code/apps specific to the Surron.
+
+This commit shows the difference between the offical VESC v5.02 firmware and the Torp TC500 v1.05 firmware:
+
+https://github.com/jaykup26/bldc_torp/commit/0dca43f577ccb2c5a8887137bce5821c2c9eccf6
+
+Below is the original README from Vedder's repository:
+
 # VESC firmware
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
