@@ -219,14 +219,14 @@ void conf_general_read_app_configuration(app_configuration *conf) {
 #ifdef TEST_BAD_APP_CRC
 	conf->crc++;
 #endif
-	if(conf->crc != app_calc_crc(conf)) {
-		is_ok = false;
-//		mc_interface_fault_stop(FAULT_CODE_FLASH_CORRUPTION_APP_CFG, false, false);
-		fault_data f;
-		f.fault = FAULT_CODE_FLASH_CORRUPTION_APP_CFG;
-		terminal_add_fault_data(&f);
-	}
-
+//	if(conf->crc != app_calc_crc(conf)) {
+//		is_ok = false;
+////		mc_interface_fault_stop(FAULT_CODE_FLASH_CORRUPTION_APP_CFG, false, false);
+//		fault_data f;
+//		f.fault = FAULT_CODE_FLASH_CORRUPTION_APP_CFG;
+//		terminal_add_fault_data(&f);
+//	}
+//
 	// Set the default configuration
 	if (!is_ok) {
 		confgenerator_set_defaults_appconf(conf);
@@ -319,14 +319,14 @@ void conf_general_read_mc_configuration(mc_configuration *conf, bool is_motor_2)
 #ifdef TEST_BAD_MC_CRC
 	conf->crc++;
 #endif
-	if(conf->crc != mc_interface_calc_crc(conf, is_motor_2)) {
-		is_ok = false;
-//		mc_interface_fault_stop(FAULT_CODE_FLASH_CORRUPTION_MC_CFG, is_motor_2, false);
-		fault_data f;
-		f.fault = FAULT_CODE_FLASH_CORRUPTION_MC_CFG;
-		terminal_add_fault_data(&f);
-	}
-
+//	if(conf->crc != mc_interface_calc_crc(conf, is_motor_2)) {
+//		is_ok = false;
+////		mc_interface_fault_stop(FAULT_CODE_FLASH_CORRUPTION_MC_CFG, is_motor_2, false);
+//		fault_data f;
+//		f.fault = FAULT_CODE_FLASH_CORRUPTION_MC_CFG;
+//		terminal_add_fault_data(&f);
+//	}
+//
 	if (!is_ok) {
 		confgenerator_set_defaults_mcconf(conf);
 	}
@@ -1147,7 +1147,7 @@ int conf_general_autodetect_apply_sensors_foc(float current,
 		}
 
 		if (send_mcconf_on_success) {
-			commands_send_mcconf(COMM_GET_MCCONF, mcconf_old);
+			commands_send_mcconf(COMM_GET_MCCONF, mcconf_old, 0);
 		}
 	}
 
@@ -1731,7 +1731,7 @@ int conf_general_detect_apply_all_foc_can(bool detect_can, float max_power_loss,
 			appconf->send_can_status = CAN_STATUS_1_2_3_4;
 			conf_general_store_app_configuration(appconf);
 			app_set_configuration(appconf);
-			commands_send_appconf(COMM_GET_APPCONF, appconf);
+			commands_send_appconf(COMM_GET_APPCONF, appconf, 0);
 			chThdSleepMilliseconds(1000);
 		}
 
@@ -1744,7 +1744,7 @@ int conf_general_detect_apply_all_foc_can(bool detect_can, float max_power_loss,
 		mc_interface_select_motor_thread(1);
 		*mcconf = *mc_interface_get_configuration();
 #endif
-		commands_send_mcconf(COMM_GET_MCCONF, mcconf);
+		commands_send_mcconf(COMM_GET_MCCONF, mcconf, 0);
 		chThdSleepMilliseconds(1000);
 	}
 

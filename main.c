@@ -116,7 +116,7 @@ static THD_FUNCTION(periodic_thread, arg) {
 		mc_fault_code fault2 = mc_interface_get_fault();
 		mc_interface_select_motor_thread(1);
 		if (fault != FAULT_CODE_NONE || fault2 != FAULT_CODE_NONE) {
-			for (int i = 0;i < (int)fault;i++) {
+			for (int i = 0;i < (int)mc_interface_fault_to_number(fault);i++) {
 				ledpwm_set_intensity(LED_RED, 1.0);
 				chThdSleepMilliseconds(250);
 				ledpwm_set_intensity(LED_RED, 0.0);
@@ -125,7 +125,7 @@ static THD_FUNCTION(periodic_thread, arg) {
 
 			chThdSleepMilliseconds(500);
 
-			for (int i = 0;i < (int)fault2;i++) {
+			for (int i = 0;i < (int)mc_interface_fault_to_number(fault);i++) {
 				ledpwm_set_intensity(LED_RED, 1.0);
 				chThdSleepMilliseconds(250);
 				ledpwm_set_intensity(LED_RED, 0.0);

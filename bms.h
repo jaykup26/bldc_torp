@@ -32,5 +32,7 @@ void bms_update_limits(float *i_in_min, float *i_in_max,
 void bms_process_cmd(unsigned char *data, unsigned int len,
 		void(*reply_func)(unsigned char *data, unsigned int len));
 bms_values *bms_get_values(void);
+bms_info *bms_get_info(void);
+bms_peak* bms_get_peak(bool reset);
 
 #endif /* BMS_H_ */

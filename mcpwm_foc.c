@@ -45,6 +45,7 @@
 typedef struct {
 	float id_target;
 	float iq_target;
+	float iq_target_filter;
 	float max_duty;
 	float duty_now;
 	float phase;
@@ -165,6 +166,8 @@ typedef struct {
 	float m_ang_hall;
 	float m_hall_dt_diff_last;
 	float m_hall_dt_diff_now;
+	float m_phase_volt_startup[3];
+	float m_input_volt_startup;
 } motor_all_state_t;
 
 // Private variables
@@ -1377,6 +1380,10 @@ float mcpwm_foc_get_vq(void) {
 	return motor_now()->m_motor_state.vq;
 }
 
+mc_control_mode mcpwm_foc_get_control_mode(void) {
+	return motor_now()->m_control_mode;
+}
+
 /**
  * Get current offsets,
  * this is used by the virtual motor to save the current offsets,
@@ -1391,6 +1398,18 @@ void mcpwm_foc_get_current_offsets(
 	*curr0_offset = motor->m_curr_ofs[0];
 	*curr1_offset = motor->m_curr_ofs[1];
 	*curr2_offset = motor->m_curr_ofs[2];
+}
+
+void mcpwm_foc_get_phase_volt_startup(
+	volatile float *phase0_volt_startup,
+	volatile float *phase1_volt_startup,
+	volatile float *phase2_volt_startup,
+	volatile float *input_volt_startup) {
+
+	*phase0_volt_startup = m_motor_1.m_phase_volt_startup[0];
+	*phase1_volt_startup = m_motor_1.m_phase_volt_startup[1];
+	*phase2_volt_startup = m_motor_1.m_phase_volt_startup[2];
+	*input_volt_startup = m_motor_1.m_input_volt_startup;
 }
 
 /**
@@ -2528,10 +2547,22 @@ void mcpwm_foc_adc_int_handler(void *p, uint32_t flags) {
 		// Apply current limits
 		// TODO: Consider D axis current for the input current as well.
 		const float mod_q = motor_now->m_motor_state.mod_q;
+		bool did_in_trunc = false;
 		if (mod_q > 0.001) {
-			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
+			did_in_trunc = utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_min / mod_q, conf_now->lo_in_current_max / mod_q);
 		} else if (mod_q < -0.001) {
-			utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, conf_now->lo_in_current_min / mod_q);
+			did_in_trunc = utils_truncate_number(&iq_set_tmp, conf_now->lo_in_current_max / mod_q, conf_now->lo_in_current_min / mod_q);
+		}
+
+		if (fabsf(mod_q) < 0.05 && conf_now->lo_in_current_max == 0.0) {
+			iq_set_tmp = 0.0;
+		}
+
+		if (motor_now->m_control_mode == CONTROL_MODE_CURRENT && did_in_trunc) {
+			UTILS_LP_FAST(motor_now->m_motor_state.iq_target_filter, iq_set_tmp, 0.1);
+			iq_set_tmp = motor_now->m_motor_state.iq_target_filter;
+		} else {
+			motor_now->m_motor_state.iq_target_filter = iq_set_tmp;
 		}
 
 		if (mod_q > 0.0) {
@@ -3124,7 +3155,7 @@ static void do_dc_cal(void) {
 		}
 	};
 
-	chThdSleepMilliseconds(1000);
+	chThdSleepMilliseconds(200);
 
 	memset((int*)m_motor_1.m_curr_sum, 0, sizeof(m_motor_1.m_curr_sum));
 	m_motor_1.m_curr_samples = 0;
@@ -3146,6 +3177,23 @@ static void do_dc_cal(void) {
 #endif
 #endif
 
+	uint32_t m_phase_volt_sum[3];
+	uint16_t m_phase_volt_samples = 0;
+	memset((uint32_t*)m_phase_volt_sum, 0, sizeof(m_phase_volt_sum));
+
+	while (m_phase_volt_samples < 101) {
+		m_phase_volt_sum[0] += ADC_V_L1;
+		m_phase_volt_sum[1] += ADC_V_L2;
+		m_phase_volt_sum[2] += ADC_V_L3;
+		m_phase_volt_samples++;
+		chThdSleepMilliseconds(1);
+	};
+
+	m_motor_1.m_phase_volt_startup[0] = ((float)(m_phase_volt_sum[0] / m_phase_volt_samples) / 4096.0 * V_REG) * ((VIN_R1 + VIN_R2) / VIN_R2);
+	m_motor_1.m_phase_volt_startup[1] = ((float)(m_phase_volt_sum[1] / m_phase_volt_samples) / 4096.0 * V_REG) * ((VIN_R1 + VIN_R2) / VIN_R2);
+	m_motor_1.m_phase_volt_startup[2] = ((float)(m_phase_volt_sum[2] / m_phase_volt_samples) / 4096.0 * V_REG) * ((VIN_R1 + VIN_R2) / VIN_R2);
+	m_motor_1.m_input_volt_startup = GET_INPUT_VOLTAGE();
+
 	DCCAL_OFF();
 	m_dccal_done = true;
 }
@@ -3161,11 +3209,17 @@ void observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
 
 	// Saturation compensation
 	const float sign = (motor->m_motor_state.iq * motor->m_motor_state.vq) >= 0.0 ? 1.0 : -1.0;
-	R -= R * sign * conf_now->foc_sat_comp * (motor->m_motor_state.i_abs_filter / conf_now->l_current_max);
+	float abs_rpm = fabsf(motor->m_speed_est_fast * 60 / (2 * M_PI));
+
+	if (conf_now->foc_sat_comp_start_erpm > 0.0 && (abs_rpm > conf_now->foc_sat_comp_start_erpm)) {
+		R -= R * sign * (conf_now->foc_sat_comp * fabsf(motor->m_duty_filtered)) * (motor->m_motor_state.i_abs_filter / conf_now->l_current_max);
+	} else if (!(conf_now->foc_sat_comp_start_erpm > 0.0)) {
+		R -= R * sign * conf_now->foc_sat_comp * (motor->m_motor_state.i_abs_filter / conf_now->l_current_max);
+	}
 
 	// Temperature compensation
 	const float t = mc_interface_temp_motor_filtered();
-	if (conf_now->foc_temp_comp && t > -25.0) {
+	if (conf_now->foc_temp_comp && t > -30.0) {
 		R += R * 0.00386 * (t - conf_now->foc_temp_comp_base_temp);
 	}
 
@@ -3203,6 +3257,25 @@ void observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
 		}
 	} break;
 
+	case FOC_OBSERVER_ORTEGA_ORIGINAL_NEW: {
+		float err = lambda_2 - (SQ(*x1 - L_ia) + SQ(*x2 - L_ib));
+
+		// Forcing this term to stay negative helps convergence according to
+		//
+		// http://cas.ensmp.fr/Publications/Publications/Papers/ObserverPermanentMagnet.pdf
+		// and
+		// https://arxiv.org/pdf/1905.00833.pdf
+		if (err > 0.0) {
+			err = 0.0;
+		}
+
+		float x1_dot = v_alpha - R_ia + gamma_half * (*x1 - L_ia) * err;
+		float x2_dot = v_beta - R_ib + gamma_half * (*x2 - L_ib) * err;
+
+		*x1 += x1_dot * dt;
+		*x2 += x2_dot * dt;
+	} break;
+
 	default:
 		break;
 	}
@@ -3220,6 +3293,16 @@ void observer_update(float v_alpha, float v_beta, float i_alpha, float i_beta,
 
 	UTILS_NAN_ZERO(*x1);
 	UTILS_NAN_ZERO(*x2);
+
+
+	if (conf_now->foc_observer_type == FOC_OBSERVER_ORTEGA_ORIGINAL_NEW) {
+		// Prevent the magnitude from getting too low, as that makes the angle very unstable.
+		float mag = sqrtf(SQ(*x1) + SQ(*x2));
+		if (mag < (conf_now->foc_motor_flux_linkage * 0.5)) {
+			*x1 *= 1.1;
+			*x2 *= 1.1;
+		}
+	}
 
 	if (phase) {
 		*phase = utils_fast_atan2(*x2 - L_ib, *x1 - L_ia);
@@ -3315,16 +3398,26 @@ static void control_current(volatile motor_all_state_t *motor, float dt) {
 		}
 	}
 
+	float current_kp = conf_now->foc_current_kp;
+
+	if (conf_now->foc_current_kp_start > 0.0 && conf_now->foc_current_kp_power_end > 0.0) {
+
+		float power = fabsf(mc_interface_get_tot_current_in_filtered()) * (float)GET_INPUT_VOLTAGE();
+		current_kp = utils_map(power, 0.0, conf_now->foc_current_kp_power_end, conf_now->foc_current_kp_start, conf_now->foc_current_kp);
+
+		utils_truncate_number(&current_kp, 0.0, conf_now->foc_current_kp);
+	}
+
 	float Ierr_d = state_m->id_target - state_m->id;
 	float Ierr_q = state_m->iq_target - state_m->iq;
 
-	state_m->vd = state_m->vd_int + Ierr_d * conf_now->foc_current_kp * d_gain_scale;
-	state_m->vq = state_m->vq_int + Ierr_q * conf_now->foc_current_kp;
+	state_m->vd = state_m->vd_int + Ierr_d * current_kp * d_gain_scale;
+	state_m->vq = state_m->vq_int + Ierr_q * current_kp;
 
 	// Temperature compensation
 	const float t = mc_interface_temp_motor_filtered();
 	float ki = conf_now->foc_current_ki;
-	if (conf_now->foc_temp_comp && t > -5.0) {
+	if (conf_now->foc_temp_comp && t > -30.0) {
 		ki += ki * 0.00386 * (t - conf_now->foc_temp_comp_base_temp);
 	}
 
@@ -3918,6 +4011,8 @@ static float correct_encoder(float obs_angle, float enc_angle, float speed,
 static float correct_hall(float angle, float dt, volatile motor_all_state_t *motor) {
 	volatile mc_configuration *conf_now = motor->m_conf;
 	motor->m_hall_dt_diff_now += dt;
+	static bool hall_invalid = false;
+	static bool checked_hall_invalid = false;
 
 	float rad_per_sec = (M_PI / 3.0) / motor->m_hall_dt_diff_last;
 	float rpm_abs_fast = fabsf(motor->m_speed_est_fast / ((2.0 * M_PI) / 60.0));
@@ -3998,6 +4093,7 @@ static float correct_hall(float angle, float dt, volatile motor_all_state_t *mot
 		if (motor->m_using_hall) {
 			angle = motor->m_ang_hall;
 		}
+		mc_interface_clear_warning(WARNING_CODE_28);
 	} else {
 		// Invalid hall reading. Don't update angle.
 		motor->m_ang_hall_int_prev = -1;
@@ -4008,6 +4104,18 @@ static float correct_hall(float angle, float dt, volatile motor_all_state_t *mot
 		if (motor->m_phase_observer_override && motor->m_state == MC_STATE_RUNNING) {
 			angle = motor->m_phase_now_observer_override;
 		}
+
+		if (!checked_hall_invalid) {
+			hall_invalid = true;
+		}
+		mc_interface_set_warning(WARNING_CODE_28);
+	}
+
+	if (!checked_hall_invalid) {
+		checked_hall_invalid = true;
+	}
+	if (hall_invalid) {
+		mc_interface_fault_stop(FAULT_CODE_TORP_3, false, true);
 	}
 
 	return angle;

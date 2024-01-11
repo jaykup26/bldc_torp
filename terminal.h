@@ -22,6 +22,16 @@
 
 #include "datatypes.h"
 
+#define FAULT_VEC_LEN                       25
+#define FAULT_VESC_SRAM_LEN                 20
+
+extern volatile fault_data fault_vec[];
+extern volatile fault_data fault_vesc_sram[];
+extern volatile int fault_vec_write;
+extern volatile int fault_vesc_write_sram;
+extern volatile uint16_t fault_vesc_write_sram_cnt;
+extern volatile uint32_t fault_vesc_write_sram_rnd_id;
+
 // Functions
 void terminal_process_string(char *str);
 void terminal_add_fault_data(fault_data *data);

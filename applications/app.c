@@ -79,22 +79,22 @@ void app_set_configuration(app_configuration *conf) {
 		break;
 
 	case APP_ADC:
-		app_adc_start(true);
+		app_adc_start(false);
 		break;
 
 	case APP_UART:
-		hw_stop_i2c();
+		//hw_stop_i2c();
 		app_uartcomm_start();
 		break;
 
 	case APP_PPM_UART:
-		hw_stop_i2c();
+		//hw_stop_i2c();
 		app_ppm_start();
 		app_uartcomm_start();
 		break;
 
 	case APP_ADC_UART:
-		hw_stop_i2c();
+		//hw_stop_i2c();
 		app_adc_start(false);
 		app_uartcomm_start();
 		break;
@@ -106,7 +106,7 @@ void app_set_configuration(app_configuration *conf) {
 	case APP_BALANCE:
 		app_balance_start();
 		if(appconf.imu_conf.type == IMU_TYPE_INTERNAL){
-			hw_stop_i2c();
+			//hw_stop_i2c();
 			app_uartcomm_start();
 		}
 		break;
@@ -139,10 +139,17 @@ void app_set_configuration(app_configuration *conf) {
 	}
 
 	app_ppm_configure(&appconf.app_ppm_conf);
-	app_adc_configure(&appconf.app_adc_conf);
+	app_adc_configure(&appconf.app_adc_conf, true);
 	app_pas_configure(&appconf.app_pas_conf);
 	app_uartcomm_configure(appconf.app_uart_baudrate, appconf.permanent_uart_enabled);
+	app_uartcomm_start();
 	app_nunchuk_configure(&appconf.app_chuk_conf);
+
+#ifdef HW_TC500
+	app_suron_configure(&appconf.app_suron_conf);
+	app_suron_start();
+	app_surron_bms_start();
+#endif
 
 #ifdef APP_CUSTOM_TO_USE
 	app_custom_configure(&appconf);

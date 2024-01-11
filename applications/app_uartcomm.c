@@ -224,7 +224,7 @@ static THD_FUNCTION(packet_process_thread, arg) {
 #endif
 
 	for(;;) {
-		chEvtWaitAnyTimeout(ALL_EVENTS, ST2MS(10));
+		chEvtWaitAnyTimeout(ALL_EVENTS, TIME_INFINITE);
 
 		bool rx = true;
 		while (rx) {

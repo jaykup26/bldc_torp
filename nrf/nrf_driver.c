@@ -205,7 +205,7 @@ static THD_FUNCTION(tx_thread, arg) {
 			float wh_left = 0;
 
 			pl[index++] = MOTE_PACKET_ALIVE;
-			buffer_append_float16(pl, mc_interface_get_battery_level(&wh_left), 1e3, &index);
+			buffer_append_float16(pl, mc_interface_get_battery_level(&wh_left, 0.0, false), 1e3, &index);
 			buffer_append_float32(pl, mc_interface_get_speed(), 1e3, &index);
 			buffer_append_float32(pl, mc_interface_get_distance_abs(), 1e3, &index);
 			buffer_append_float16(pl, mc_interface_temp_fet_filtered(), 1e1, &index);
@@ -497,7 +497,7 @@ void nrf_driver_process_packet(unsigned char *buf, unsigned char len) {
 		conf_general_store_app_configuration(&appconf);
 		app_set_configuration(&appconf);
 
-		commands_send_appconf(COMM_GET_APPCONF, &appconf);
+		commands_send_appconf(COMM_GET_APPCONF, &appconf, 0);
 
 		unsigned char data[2];
 		data[0] = COMM_NRF_START_PAIRING;

@@ -234,6 +234,19 @@
 #define CURRENT_FILTER_OFF()
 #endif
 
+#ifndef LED_RED_ON
+#define LED_RED_ON()
+#endif
+#ifndef LED_RED_OFF
+#define LED_RED_OFF()
+#endif
+#ifndef LED_GREEN_ON
+#define LED_GREEN_ON()
+#endif
+#ifndef LED_GREEN_OFF
+#define LED_GREEN_OFF()
+#endif
+
 // VCC net voltage
 #ifndef V_REG
 #define V_REG				3.3
@@ -385,6 +398,10 @@
 #define HW_EARLY_INIT()
 #endif
 
+#ifndef HW_BEFORE_FW_UPDATE
+#define HW_BEFORE_FW_UPDATE()
+#endif
+
 // Default ID
 #ifndef HW_DEFAULT_ID
 #define HW_DEFAULT_ID			(APPCONF_CONTROLLER_ID >= 0 ? APPCONF_CONTROLLER_ID : hw_id_from_uuid())
@@ -462,6 +479,9 @@
 #endif
 #ifndef ADC_V_L6
 #define ADC_V_L6				ADC_V_L3
+#endif
+#ifndef GET_GATE_DRIVER_SUPPLY_VOLTAGE
+#define GET_GATE_DRIVER_SUPPLY_VOLTAGE()    0.0
 #endif
 
 #ifdef HW_HAS_DRV8323S

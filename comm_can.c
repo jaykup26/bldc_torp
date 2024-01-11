@@ -43,6 +43,8 @@
 #define RX_FRAMES_SIZE	100
 #define RX_BUFFER_SIZE	PACKET_MAX_PL_LEN
 
+#define CAN_MODE_TORP_XOR_VALUE 0xAA;
+
 #if CAN_ENABLE
 // Threads
 static THD_WORKING_AREA(cancom_read_thread_wa, 512);
@@ -213,6 +215,13 @@ void comm_can_transmit_eid_replace(uint32_t id, const uint8_t *data, uint8_t len
 	txmsg.RTR = CAN_RTR_DATA;
 	txmsg.DLC = len;
 	memcpy(txmsg.data8, data, len);
+
+	if (app_get_configuration()->can_mode == CAN_MODE_TORP) {
+		for (int i = 0; i < len; i++)
+		{
+			txmsg.data8[i] ^= (uint8_t)CAN_MODE_TORP_XOR_VALUE;
+		}
+	}
 
 	chMtxLock(&can_mtx);
 	canTransmit(&HW_CAN_DEV, CAN_ANY_MAILBOX, &txmsg, MS2ST(5));
@@ -484,7 +493,7 @@ void comm_can_set_handbrake_rel(uint8_t controller_id, float current_rel) {
  */
 bool comm_can_ping(uint8_t controller_id, HW_TYPE *hw_type) {
 #if CAN_ENABLE
-	if (app_get_configuration()->can_mode != CAN_MODE_VESC) {
+	if (app_get_configuration()->can_mode != CAN_MODE_VESC && app_get_configuration()->can_mode != CAN_MODE_TORP) {
 		return false;
 	}
 
@@ -1005,6 +1014,13 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 		while ((rxmsg_tmp = comm_can_get_rx_frame()) != 0) {
 			CANRxFrame rxmsg = *rxmsg_tmp;
 
+			if (app_get_configuration()->can_mode == CAN_MODE_TORP) {
+				for (int i = 0; i < rxmsg.DLC; i++)
+				{
+					rxmsg.data8[i] ^= (uint8_t)CAN_MODE_TORP_XOR_VALUE;
+				}
+			}
+
 			if (rxmsg.IDE == CAN_IDE_EXT) {
 				bool eid_cb_used = false;
 				if (eid_callback) {
@@ -1231,7 +1247,7 @@ static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced) 
 					commands_process_packet(rx_buffer, rxbuf_len, send_packet_wrapper);
 					break;
 				case 1:
-					commands_send_packet_can_last(rx_buffer, rxbuf_len);
+					commands_send_packet_can_last(rx_buffer, rxbuf_len, rx_buffer_last_id);
 					break;
 				case 2:
 					commands_process_packet(rx_buffer, rxbuf_len, 0);
@@ -1262,7 +1278,7 @@ static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced) 
 				commands_process_packet(data8 + ind, len - ind, send_packet_wrapper);
 				break;
 			case 1:
-				commands_send_packet_can_last(data8 + ind, len - ind);
+				commands_send_packet_can_last(data8 + ind, len - ind, rx_buffer_last_id);
 				break;
 			case 2:
 				commands_process_packet(data8 + ind, len - ind, 0);
@@ -1613,9 +1629,14 @@ static void decode_msg(uint32_t eid, uint8_t *data8, int len, bool is_replaced) 
 static void send_status1(uint8_t id, bool replace) {
 	int32_t send_index = 0;
 	uint8_t buffer[8];
-	buffer_append_int32(buffer, (int32_t)mc_interface_get_rpm(), &send_index);
-	buffer_append_int16(buffer, (int16_t)(mc_interface_get_tot_current_filtered() * 1e1), &send_index);
-	buffer_append_int16(buffer, (int16_t)(mc_interface_get_duty_cycle_now() * 1e3), &send_index);
+	buffer_append_int16(buffer, (int16_t)(mc_interface_get_speed() * 1e1), &send_index);
+	buffer[send_index++] = mc_interface_get_fault();
+	buffer[send_index++] = 0;
+#ifdef HW_TC500
+	buffer[send_index++] = app_suron_get_modbutton_state();
+#else
+	buffer[send_index++] = 0;
+#endif
 	comm_can_transmit_eid_replace(id | ((uint32_t)CAN_PACKET_STATUS << 8),
 			buffer, send_index, replace);
 }
@@ -1623,8 +1644,10 @@ static void send_status1(uint8_t id, bool replace) {
 static void send_status2(uint8_t id, bool replace) {
 	int32_t send_index = 0;
 	uint8_t buffer[8];
-	buffer_append_int32(buffer, (int32_t)(mc_interface_get_amp_hours(false) * 1e4), &send_index);
-	buffer_append_int32(buffer, (int32_t)(mc_interface_get_amp_hours_charged(false) * 1e4), &send_index);
+	buffer_append_int16(buffer, (int16_t)(mc_interface_temp_fet_filtered() * 1e1), &send_index);
+	buffer_append_int16(buffer, (int16_t)(mc_interface_temp_motor_filtered() * 1e1), &send_index);
+	buffer_append_int16(buffer, (int16_t)(mc_interface_read_reset_avg_motor_current() * 1e1), &send_index);
+	buffer_append_int16(buffer, (int16_t)(mc_interface_read_reset_avg_input_current() * 1e1), &send_index);
 	comm_can_transmit_eid_replace(id | ((uint32_t)CAN_PACKET_STATUS_2 << 8),
 			buffer, send_index, replace);
 }
@@ -1641,10 +1664,8 @@ static void send_status3(uint8_t id, bool replace) {
 static void send_status4(uint8_t id, bool replace) {
 	int32_t send_index = 0;
 	uint8_t buffer[8];
-	buffer_append_int16(buffer, (int16_t)(mc_interface_temp_fet_filtered() * 1e1), &send_index);
-	buffer_append_int16(buffer, (int16_t)(mc_interface_temp_motor_filtered() * 1e1), &send_index);
-	buffer_append_int16(buffer, (int16_t)(mc_interface_get_tot_current_in_filtered() * 1e1), &send_index);
-	buffer_append_int16(buffer, (int16_t)(mc_interface_get_pid_pos_now() * 50.0), &send_index);
+	buffer_append_int32(buffer, (int32_t)(mc_interface_get_amp_hours(false) * 1e4), &send_index);
+	buffer_append_int32(buffer, (int32_t)(mc_interface_get_amp_hours_charged(false) * 1e4), &send_index);
 	comm_can_transmit_eid_replace(id | ((uint32_t)CAN_PACKET_STATUS_4 << 8),
 			buffer, send_index, replace);
 }

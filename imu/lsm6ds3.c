@@ -30,6 +30,7 @@ static thread_t *lsm6ds3_thread_ref = NULL;
 static i2c_bb_state m_i2c_bb;
 static volatile uint16_t lsm6ds3_addr;
 static int rate_hz = 1000;
+static systime_t tmo = MS2ST(5);
 
 static void terminal_read_reg(int argc, const char **argv);
 static uint8_t read_single_reg(uint8_t reg);
@@ -53,31 +54,42 @@ void lsm6ds3_init(stm32_gpio_t *sda_gpio, int sda_pin,
 	m_i2c_bb.sda_pin = sda_pin;
 	m_i2c_bb.scl_gpio = scl_gpio;
 	m_i2c_bb.scl_pin = scl_pin;
-	i2c_bb_init(&m_i2c_bb);
+	//i2c_bb_init(&m_i2c_bb);
+
+	hw_start_i2c();
+	chThdSleepMilliseconds(10);
 
 	uint8_t txb[2];
 	uint8_t rxb[2];
 
 	txb[0] = LSM6DS3_ACC_GYRO_WHO_AM_I_REG;
-	lsm6ds3_addr = LSM6DS3_ACC_GYRO_ADDR_A;
-	bool res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 1);
-	if (!res || rxb[0] != 0x69) {
+	lsm6ds3_addr = LSM6DS3_ACC_GYRO_ADDR_B;
+
+	i2cAcquireBus(&HW_I2C_DEV);
+	msg_t status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 1, rxb, 1, tmo);
+	i2cReleaseBus(&HW_I2C_DEV);
+
+	if (status != MSG_OK || rxb[0] != 0x69) {
 		commands_printf("LSM6DS3 Address A failed, trying B");
-		lsm6ds3_addr = LSM6DS3_ACC_GYRO_ADDR_B;
-		res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 1);
-		if (!res || rxb[0] != 0x69) {
+		lsm6ds3_addr = LSM6DS3_ACC_GYRO_ADDR_A;
+		i2cAcquireBus(&HW_I2C_DEV);
+		status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 1, rxb, 1, tmo);
+		i2cReleaseBus(&HW_I2C_DEV);
+
+		if (status != MSG_OK || rxb[0] != 0x69) {
 			commands_printf("LSM6DS3 Address B failed");
 			return;
 		}
-
 	}
 
 	// Configure imu
 	// Set all accel speeds to MAX
 	txb[0] = LSM6DS3_ACC_GYRO_CTRL1_XL;
 	txb[1] = LSM6DS3_ACC_GYRO_BW_XL_400Hz | LSM6DS3_ACC_GYRO_FS_XL_16g | LSM6DS3_ACC_GYRO_ODR_XL_6660Hz;
-	res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 2, rxb, 1);
-	if(!res){
+	i2cAcquireBus(&HW_I2C_DEV);
+	status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 2, rxb, 1, tmo);
+	i2cReleaseBus(&HW_I2C_DEV);
+	if(status != MSG_OK){
 		commands_printf("LSM6DS3 Accel Config FAILED");
 		return;
 	}
@@ -85,8 +97,10 @@ void lsm6ds3_init(stm32_gpio_t *sda_gpio, int sda_pin,
 	// Set all gyro speeds to MAX
 	txb[0] = LSM6DS3_ACC_GYRO_CTRL2_G;
 	txb[1] = LSM6DS3_ACC_GYRO_FS_G_2000dps | LSM6DS3_ACC_GYRO_ODR_G_1660Hz;
-	res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 2, rxb, 1);
-	if(!res){
+	i2cAcquireBus(&HW_I2C_DEV);
+	status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 2, rxb, 1, tmo);
+	i2cReleaseBus(&HW_I2C_DEV);
+	if (status != MSG_OK) {
 		commands_printf("LSM6DS3 Gyro Config FAILED");
 		return;
 	}
@@ -94,8 +108,11 @@ void lsm6ds3_init(stm32_gpio_t *sda_gpio, int sda_pin,
 	// Set ODR???
 	txb[0] = LSM6DS3_ACC_GYRO_CTRL4_C;
 	txb[1] = LSM6DS3_ACC_GYRO_BW_SCAL_ODR_ENABLED;
-	res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 1);
-	if(!res){
+	//res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 1);
+	i2cAcquireBus(&HW_I2C_DEV);
+	msg_t status5 = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 2, rxb, 1, tmo);
+	i2cReleaseBus(&HW_I2C_DEV);
+	if (status5 != MSG_OK) {
 		commands_printf("LSM6DS3 ODR Config FAILED");
 		return;
 	}
@@ -127,9 +144,12 @@ static uint8_t read_single_reg(uint8_t reg) {
 	uint8_t rxb[2];
 
 	txb[0] = reg;
-	bool res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 2);
 
-	if (res) {
+	i2cAcquireBus(&HW_I2C_DEV);
+	msg_t status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 1, rxb, 2, tmo);
+	i2cReleaseBus(&HW_I2C_DEV);
+
+	if (!status) {
 		return rxb[0];
 	} else {
 		return 0;
@@ -165,14 +185,18 @@ static THD_FUNCTION(lsm6ds3_thread, arg) {
 		uint8_t txb[2];
 		uint8_t rxb[12];
 
+		msg_t status = MSG_OK;
+
 		// Disable IMU writing to output registers
 		txb[0] = LSM6DS3_ACC_GYRO_CTRL3_C;
 		txb[1] = LSM6DS3_ACC_GYRO_BDU_BLOCK_UPDATE | LSM6DS3_ACC_GYRO_IF_INC_ENABLED;
-		i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 2, rxb, 1);
+		i2cAcquireBus(&HW_I2C_DEV);
+		status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 2, rxb, 1, tmo);
 
 		// Read IMU output registers
 		txb[0] = LSM6DS3_ACC_GYRO_OUTX_L_G;
-		bool res = i2c_bb_tx_rx(&m_i2c_bb, lsm6ds3_addr, txb, 1, rxb, 12);
+		status = i2cMasterTransmitTimeout(&HW_I2C_DEV, lsm6ds3_addr, txb, 1, rxb, 12, tmo);
+		i2cReleaseBus(&HW_I2C_DEV);
 
 		// Parse 6 axis values
 		float gx = (float)((int16_t)((uint16_t)rxb[1] << 8) + rxb[0]) * 4.375 * (2000 / 125) / 1000;
@@ -182,13 +206,19 @@ static THD_FUNCTION(lsm6ds3_thread, arg) {
 		float ay = (float)((int16_t)((uint16_t)rxb[9] << 8) + rxb[8]) * 0.061 * (16 >> 1) / 1000;
 		float az = (float)((int16_t)((uint16_t)rxb[11] << 8) + rxb[10]) * 0.061 * (16 >> 1) / 1000;
 
-		if (res && read_callback) {
+		if (status == MSG_OK && read_callback) {
 			float tmp_accel[3] = {ax,ay,az}, tmp_gyro[3] = {gx,gy,gz}, tmp_mag[3] = {1,2,3};
 			read_callback(tmp_accel, tmp_gyro, tmp_mag);
+		}
+		else if (status != MSG_OK) {
+			hw_try_restore_i2c();
+			chThdSleepMilliseconds(50);
 		}
 
 		// Delay between loops
 		chThdSleepMilliseconds((int)((1000.0 / rate_hz)));
 	}
+
+	hw_stop_i2c();
 }
 

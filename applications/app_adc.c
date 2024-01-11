@@ -49,10 +49,15 @@ static volatile float read_voltage2 = 0.0;
 static volatile bool use_rx_tx_as_buttons = false;
 static volatile bool stop_now = true;
 static volatile bool is_running = false;
+static volatile float pwrInMax = 0.0;
+static volatile bool is_in_throttle_error_voltage = false;
+static volatile bool is_in_tpc = false;
 
-void app_adc_configure(adc_config *conf) {
+void app_adc_configure(adc_config *conf, bool safe_start) {
 	config = *conf;
-	ms_without_power = 0.0;
+	if (safe_start) {
+		ms_without_power = 0.0;
+	}
 }
 
 void app_adc_start(bool use_rx_tx) {
@@ -95,7 +100,7 @@ static THD_FUNCTION(adc_thread, arg) {
 		palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_INPUT_PULLUP);
 		palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT_PULLUP);
 	} else {
-		palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_INPUT_PULLUP);
+		//palSetPadMode(HW_ICU_GPIO, HW_ICU_PIN, PAL_MODE_INPUT_PULLUP);
 	}
 
 	is_running = true;
@@ -119,6 +124,14 @@ static THD_FUNCTION(adc_thread, arg) {
 		if (mc_interface_get_fault() != FAULT_CODE_NONE) {
 			ms_without_power = 0;
 		}
+
+#ifdef TORP_RELEASE
+		if (config.ctrl_type && !(config.ctrl_type == ADC_CTRL_TYPE_CURRENT ||
+			config.ctrl_type == ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER)) {
+
+			config.ctrl_type = ADC_CTRL_TYPE_NONE;
+		}
+#endif
 
 		// Read the external ADC pin and convert the value to a voltage.
 		float pwr = (float)ADC_Value[ADC_IND_EXT];
@@ -148,7 +161,6 @@ static THD_FUNCTION(adc_thread, arg) {
 		switch (config.ctrl_type) {
 		case ADC_CTRL_TYPE_CURRENT_REV_CENTER:
 		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER:
-		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER:
 		case ADC_CTRL_TYPE_DUTY_REV_CENTER:
 		case ADC_CTRL_TYPE_PID_REV_CENTER:
 			// Mapping with respect to center voltage
@@ -219,12 +231,17 @@ static THD_FUNCTION(adc_thread, arg) {
 		// Read the button pins
 		bool cc_button = false;
 		bool rev_button = false;
+		suron_conf sur_conf = app_get_configuration()->app_suron_conf;
 		if (use_rx_tx_as_buttons) {
-			cc_button = !palReadPad(HW_UART_TX_PORT, HW_UART_TX_PIN);
-			if (config.cc_button_inverted) {
-				cc_button = !cc_button;
-			}
-			rev_button = !palReadPad(HW_UART_RX_PORT, HW_UART_RX_PIN);
+			//cc_button = !palReadPad(HW_UART_TX_PORT, HW_UART_TX_PIN);
+			//if (config.cc_button_inverted) {
+			//	cc_button = !cc_button;
+			//}
+			cc_button = false;
+			//rev_button = !palReadPad(HW_UART_RX_PORT, HW_UART_RX_PIN);
+#ifdef HW_TC500
+			rev_button = sur_conf.brake && !palReadPad(HW_SURON_BRAKE_PORT, HW_SURON_BRAKE_PIN);
+#endif
 			if (config.rev_button_inverted) {
 				rev_button = !rev_button;
 			}
@@ -233,17 +250,22 @@ static THD_FUNCTION(adc_thread, arg) {
 			if (config.ctrl_type == ADC_CTRL_TYPE_CURRENT_REV_BUTTON ||
                     config.ctrl_type == ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER ||
 					config.ctrl_type == ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_BUTTON ||
+					config.ctrl_type == ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER ||
 					config.ctrl_type == ADC_CTRL_TYPE_DUTY_REV_BUTTON ||
 					config.ctrl_type == ADC_CTRL_TYPE_PID_REV_BUTTON) {
-				rev_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+				//rev_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+#ifdef HW_TC500
+				rev_button = sur_conf.brake && !palReadPad(HW_SURON_BRAKE_PORT, HW_SURON_BRAKE_PIN);
+#endif
 				if (config.rev_button_inverted) {
 					rev_button = !rev_button;
 				}
 			} else {
-				cc_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
-				if (config.cc_button_inverted) {
-					cc_button = !cc_button;
-				}
+				//cc_button = !palReadPad(HW_ICU_GPIO, HW_ICU_PIN);
+				//if (config.cc_button_inverted) {
+				//	cc_button = !cc_button;
+				//}
+				cc_button = false;
 			}
 		}
 
@@ -256,13 +278,13 @@ static THD_FUNCTION(adc_thread, arg) {
 		switch (config.ctrl_type) {
 		case ADC_CTRL_TYPE_CURRENT_REV_CENTER:
 		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER:
-		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER:
 		case ADC_CTRL_TYPE_DUTY_REV_CENTER:
-		case ADC_CTRL_TYPE_PID_REV_CENTER:
+		case ADC_CTRL_TYPE_PID_REV_CENTER: {
 			// Scale the voltage and set 0 at the center
 			pwr *= 2.0;
 			pwr -= 1.0;
 			break;
+		}
 
 		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_ADC:
 		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC:
@@ -275,16 +297,79 @@ static THD_FUNCTION(adc_thread, arg) {
 		case ADC_CTRL_TYPE_PID_REV_BUTTON:
 			// Invert the voltage if the button is pressed
 			if (rev_button) {
-				pwr = -pwr;
+				//pwr = -pwr;
+
+				if (pwr > config.hyst)
+				{
+				}
+				else if (config.brake_current_lever >= 0.0)
+				{
+					pwr = -1.0 * (config.brake_current_lever);
+				}
 			}
 			break;
+
+		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER: {
+			
+			break;
+		}
 
 		default:
 			break;
 		}
 
+		mc_interface_clear_warning(WARNING_CODE_24);
+		mc_interface_clear_warning(WARNING_CODE_25);
+		mc_interface_clear_warning(WARNING_CODE_26);
+		mc_interface_clear_warning(WARNING_CODE_27);
+
+		if (config.ctrl_type != ADC_CTRL_TYPE_NONE) {
+			if (config.throttle_protection_volt_rise != 0.0 && mc_interface_get_throttle_rise() > config.throttle_protection_volt_rise) {
+				is_in_throttle_error_voltage = true;
+				mc_interface_set_warning(WARNING_CODE_23);
+			}
+			uint8_t hw_major, hw_minor, type;
+			get_hw_info(&hw_major, &hw_minor, &type);
+			if (config.tpc > 0.0 && !(type == 2 && hw_major == 1 && hw_minor == 0)) {
+				uint16_t tpc_adc = ADC_Value[ADC_IND_EXT_CURR];
+				float tpc_ma = tpc_adc * 0.0080586;
+				if (tpc_adc < 20) {
+					is_in_tpc = true;
+
+					if (pwr > 0.0) {
+						mc_interface_set_warning(WARNING_CODE_26);
+					} else {
+						mc_interface_set_warning(WARNING_CODE_24);
+					}
+				}
+				if (tpc_ma > config.tpc || tpc_ma > 32.0f) {
+					is_in_tpc = true;
+
+					if (pwr > 0.0) {
+						mc_interface_set_warning(WARNING_CODE_27);
+					} else {
+						mc_interface_set_warning(WARNING_CODE_25);
+					}
+				}
+			}
+		}
+
+#ifdef HW_TC500
+		if (!(ms_without_power < MIN_MS_WITHOUT_POWER && config.safe_start) && app_suron_get_warning()) {
+			pwr = 0.0;
+		}
+
+		if (is_in_throttle_error_voltage || is_in_tpc) {
+			pwr = 0.0;
+			mc_interface_set_warning(WARNING_CODE_22);
+		};
+#endif
+		
 		// Apply deadband
 		utils_deadband(&pwr, config.hyst, 1.0);
+		utils_deadband(&brake, config.hyst, 1.0);
+
+		float pwr_before_ramp = pwr;
 
 		// Apply throttle curve
 		pwr = utils_throttle_curve(pwr, config.throttle_exp, config.throttle_exp_brake, config.throttle_exp_mode);
@@ -292,6 +377,11 @@ static THD_FUNCTION(adc_thread, arg) {
 		// Apply ramping
 		static systime_t last_time = 0;
 		static float pwr_ramp = 0.0;
+
+		if (pwr > 0.0 && pwr_ramp < 0.0) { //iz regen u power nema regen rampe
+			pwr_ramp = 0.0;
+		}
+
 		float ramp_time = fabsf(pwr) > fabsf(pwr_ramp) ? config.ramp_time_pos : config.ramp_time_neg;
 
 		// TODO: Remember what this was about?
@@ -334,7 +424,133 @@ static THD_FUNCTION(adc_thread, arg) {
 		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER:
 		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_BUTTON:
 		case ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_ADC:
-		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC:
+		case ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC: {
+
+			bool do_regen = pwr_before_ramp < 0.01;
+			bool in_cutoff_throttle = ms_without_power < MIN_MS_WITHOUT_POWER && config.safe_start;
+
+			if (config.brake_current_throttle > 0.0) {
+				static float duty_filtered;
+				static bool was_in_zero_window = false;
+				float pwr_out = 0.0;
+
+				UTILS_LP_FAST(duty_filtered, mc_interface_get_duty_cycle_now(), 0.2);
+
+				if (duty_filtered > 0.01) {
+					if (pwrInMax < pwr_before_ramp) {
+						pwrInMax = pwr_before_ramp;
+						if (pwrInMax < 0.0) {
+							pwrInMax = 0.0;
+						}
+						if (pwrInMax > 0.23) {
+							pwrInMax = 0.23;
+						}
+					}
+				} else {
+					if (pwr_before_ramp < 0.01) {
+						pwrInMax = 0.0;
+						was_in_zero_window = false;
+					}
+				}
+
+				if ((pwr_before_ramp < (pwrInMax - 0.02)) && (pwr_before_ramp > (pwrInMax - 0.04)) && !in_cutoff_throttle) {
+					pwr_out = 0.0;
+					was_in_zero_window = true;
+				} else if (pwr_before_ramp < (pwrInMax - 0.03)) {
+					pwr_out = utils_map(pwr_before_ramp, 0.0, (pwrInMax - 0.03), (-1.0 * config.brake_current_throttle), 0.0);
+				} else if (pwr_before_ramp < 0.21) {
+					pwr_out = utils_map(pwr_before_ramp, 0.0, 0.21, 0.0, 0.05);
+				} else {
+					float map_out_min = 0.05;
+					if (was_in_zero_window) {
+						map_out_min = 0.0;
+					}
+					pwr_out = utils_map(pwr_before_ramp, 0.21, 1.0, map_out_min, 1.0);
+				}
+				
+				static systime_t last_time_regen_throttle_ramp = 0;
+				static float pwr_regen_throttle_ramp = 0.0;
+
+				if (duty_filtered > 0.02 && do_regen) {
+					pwr_out = (-1.0 * config.brake_current_throttle);
+				}
+
+				pwr_out = utils_throttle_curve(pwr_out, config.throttle_exp, config.throttle_exp_brake, config.throttle_exp_mode);
+
+
+				float ramp_time_throttle = fabsf(pwr_out) > fabsf(pwr_regen_throttle_ramp) ? config.ramp_time_pos: config.ramp_time_neg;
+				if (pwr_out < 0.0 && (pwr_out < pwr_regen_throttle_ramp)) {
+					ramp_time_throttle = 0.3;
+				}
+				if (pwr_out > 0.0 && pwr_regen_throttle_ramp < 0.0) {
+					pwr_regen_throttle_ramp = 0.0;
+				}
+
+				if (ramp_time_throttle > 0.01) {
+					const float ramp_throttle_step = (float)ST2MS(chVTTimeElapsedSinceX(last_time_regen_throttle_ramp)) / (ramp_time_throttle * 1000.0);
+					utils_step_towards(&pwr_regen_throttle_ramp, pwr_out, ramp_throttle_step);
+					last_time_regen_throttle_ramp = chVTGetSystemTimeX();
+					pwr_out = pwr_regen_throttle_ramp;
+				}
+
+				pwr = pwr_out;
+			}
+
+			bool sur_brake_pwr_off = false;
+			bool regen_ramp_applied = false;
+			static systime_t last_time_regen_ramp = 0;
+			static float pwr_regen_lever_ramp = 0.0;
+
+			if ((pwr < 0.0) && (pwr < pwr_regen_lever_ramp)) {
+				pwr_regen_lever_ramp = pwr;
+			}
+			if (rev_button) { 
+				bool sur_brake_kill_switch = !in_cutoff_throttle && ((sur_conf.kill_switch_type == SURON_KILL_SWITCH_TYPE_BRAKE_LEVER) || (sur_conf.kill_switch_type == SURON_KILL_SWITCH_TYPE_MOD_BUTTON_BRAKE_LEVER));
+
+				if (config.brake_current_lever > 0.0) {
+					float pwr_lever = -1.0 * (config.brake_current_lever);
+					if ((do_regen || sur_brake_kill_switch) && (pwr_lever < pwr)) {
+						const float ramp_step = (float)ST2MS(chVTTimeElapsedSinceX(last_time_regen_ramp)) / (config.brake_lever_ramp_time_pos * 1000.0);
+						utils_step_towards(&pwr_regen_lever_ramp, pwr_lever, ramp_step);
+						last_time_regen_ramp = chVTGetSystemTimeX();
+						pwr = pwr_regen_lever_ramp;
+						regen_ramp_applied = true;
+					}
+				} else if (sur_brake_kill_switch && !do_regen) {
+					sur_brake_pwr_off = true;
+				}
+			}
+			if (!regen_ramp_applied) {
+				if (pwr_regen_lever_ramp < 0.0 && !(pwr > 0.0)) {
+					const float ramp_step = (float)ST2MS(chVTTimeElapsedSinceX(last_time_regen_ramp)) / (config.ramp_time_neg * 1000.0);
+					utils_step_towards(&pwr_regen_lever_ramp, pwr, ramp_step);
+					last_time_regen_ramp = chVTGetSystemTimeX();
+					pwr = pwr_regen_lever_ramp;
+				} else {
+					pwr_regen_lever_ramp = 0.0;
+					last_time_regen_ramp = chVTGetSystemTimeX();
+				}
+			}
+
+			if (do_regen && config.brake_current_throttle2 > 0.0) {
+				float pwr_brake = -(brake * config.brake_current_throttle2);
+				if (pwr_brake < pwr) {
+					pwr = pwr_brake;
+				}
+			}
+
+			if (!in_cutoff_throttle && (app_suron_get_warning() || sur_brake_pwr_off)) {
+				pwr = 0.0;
+			}
+
+			if (is_in_throttle_error_voltage || is_in_tpc) {
+				pwr = 0.0;
+				mc_interface_set_warning(WARNING_CODE_22);
+			};
+
+
+
+
 			current_mode = true;
 			if (pwr >= 0.0) {
 				// if pedal assist (PAS) thread is running, use the highest current command
@@ -352,10 +568,11 @@ static THD_FUNCTION(adc_thread, arg) {
 			}
 
 			if ((config.ctrl_type == ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC ||
-			    config.ctrl_type == ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER) && rev_button) {
+				config.ctrl_type == ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER) && rev_button) {
 				current_rel = -current_rel;
 			}
 			break;
+		}
 
 		case ADC_CTRL_TYPE_DUTY:
 		case ADC_CTRL_TYPE_DUTY_REV_CENTER:
@@ -400,6 +617,8 @@ static THD_FUNCTION(adc_thread, arg) {
 			continue;
 		}
 
+		mc_interface_clear_warning(WARNING_CODE_21);
+
 		// If safe start is enabled and the output has not been zero for long enough
 		if (ms_without_power < MIN_MS_WITHOUT_POWER && config.safe_start) {
 			static int pulses_without_power_before = 0;
@@ -417,6 +636,10 @@ static THD_FUNCTION(adc_thread, arg) {
 						comm_can_set_current_brake(msg->id, timeout_get_brake_current());
 					}
 				}
+			}
+
+			if (mc_interface_get_fault() == FAULT_CODE_NONE && (chVTGetSystemTimeX() > MS2ST(1500))) {
+				mc_interface_set_warning(WARNING_CODE_21);
 			}
 
 			continue;

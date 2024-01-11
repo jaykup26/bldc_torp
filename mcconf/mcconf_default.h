@@ -62,6 +62,12 @@
 #ifndef MCCONF_L_BATTERY_CUT_END
 #define MCCONF_L_BATTERY_CUT_END		8.0		// Limit the positive current completely at this voltage
 #endif
+#ifndef MCCONF_L_BATTERY_CUT_REGEN_START
+#define MCCONF_L_BATTERY_CUT_REGEN_START 100
+#endif
+#ifndef MCCONF_L_BATTERY_CUT_REGEN_END
+#define MCCONF_L_BATTERY_CUT_REGEN_END  100
+#endif
 #ifndef MCCONF_L_RPM_MAX
 #define MCCONF_L_RPM_MAX				100000.0	// The motor speed limit (Upper)
 #endif
@@ -230,6 +236,12 @@
 #ifndef MCCONF_FOC_CURRENT_KI
 #define MCCONF_FOC_CURRENT_KI			50.0
 #endif
+#ifndef MCCONF_FOC_CURRENT_KP_START
+#define MCCONF_FOC_CURRENT_KP_START     0.0
+#endif
+#ifndef MCCONF_FOC_CURRENT_KP_POWER_END
+#define MCCONF_FOC_CURRENT_KP_POWER_END 0.0
+#endif
 #ifndef MCCONF_FOC_F_SW
 #define MCCONF_FOC_F_SW					25000.0
 #endif
@@ -340,6 +352,9 @@
 #endif
 #ifndef MCCONF_FOC_SAT_COMP
 #define MCCONF_FOC_SAT_COMP				0.0		// Stator saturation compensation
+#endif
+#ifndef MCCONF_FOC_SAT_COMP_START_ERPM
+#define MCCONF_FOC_SAT_COMP_START_ERPM  0.0
 #endif
 #ifndef MCCONF_FOC_TEMP_COMP
 #define MCCONF_FOC_TEMP_COMP			false	// Motor temperature compensation
@@ -453,6 +468,9 @@
 #ifndef MCCONF_M_MOTOR_TEMP_SENS_TYPE
 #define MCCONF_M_MOTOR_TEMP_SENS_TYPE	TEMP_SENSOR_NTC_10K_25C // Motor temperature sensor type
 #endif
+#ifndef MCCONF_M_TEMP_SENS_IGNORED
+#define MCCONF_M_TEMP_SENS_IGNORED      0
+#endif
 #ifndef MCCONF_M_PTC_MOTOR_COEFF
 #define MCCONF_M_PTC_MOTOR_COEFF		0.61 // %/K coefficient for motor PTC sensor
 #endif
@@ -489,6 +507,12 @@
 #endif
 #ifndef MCCONF_BMS_T_LIMIT_END
 #define MCCONF_BMS_T_LIMIT_END			65
+#endif
+#ifndef MCCONF_BMS_T_DIS_LIMIT_START
+#define MCCONF_BMS_T_DIS_LIMIT_START    55
+#endif
+#ifndef MCCONF_BMS_T_DIS_LIMIT_END
+#define MCCONF_BMS_T_DIS_LIMIT_END      59
 #endif
 #ifndef MCCONF_BMS_SOC_LIMIT_START
 #define MCCONF_BMS_SOC_LIMIT_START		0.05

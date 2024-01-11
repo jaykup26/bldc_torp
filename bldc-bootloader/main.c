@@ -23,7 +23,7 @@
 #include "buffer.h"
 
 // 0 means generic, no LEDs
-#define HW_VER					0
+#define HW_VER					60
 
 /*
  * Defines

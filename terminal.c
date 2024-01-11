@@ -38,13 +38,13 @@
 #include "comm_usb_serial.h"
 #include "mempools.h"
 #include "crc.h"
+#include "bms.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
 // Settings
-#define FAULT_VEC_LEN						25
 #define CALLBACK_LEN						40
 
 // Private types
@@ -56,8 +56,12 @@ typedef struct _terminal_callback_struct {
 } terminal_callback_struct;
 
 // Private variables
-static volatile fault_data fault_vec[FAULT_VEC_LEN];
-static volatile int fault_vec_write = 0;
+volatile fault_data fault_vec[FAULT_VEC_LEN];
+volatile int fault_vec_write = 0;
+__attribute__((section(".ram5"))) volatile fault_data fault_vesc_sram[FAULT_VESC_SRAM_LEN];
+__attribute__((section(".ram5"))) volatile int fault_vesc_write_sram;
+__attribute__((section(".ram5"))) volatile uint16_t fault_vesc_write_sram_cnt;
+__attribute__((section(".ram5"))) volatile uint32_t fault_vesc_write_sram_rnd_id;
 static terminal_callback_struct callbacks[CALLBACK_LEN];
 static int callback_write = 0;
 
@@ -89,6 +93,12 @@ void terminal_process_string(char *str) {
 	} else if (strcmp(argv[0], "stop") == 0) {
 		mc_interface_set_duty(0);
 		commands_printf("Motor stopped\n");
+	} else if (strcmp(argv[0], "peak") == 0) {
+		mc_interface_print_peak();
+	} else if ((strcmp(argv[0], "reset_peak") == 0) || (strcmp(argv[0], "r") == 0)) {
+		mc_interface_reset_peak();
+		(void)bms_get_peak(true);
+		commands_printf("Peak reset\n");
 	} else if (strcmp(argv[0], "last_adc_duration") == 0) {
 		commands_printf("Latest ADC duration: %.4f ms", (double)(mcpwm_get_last_adc_isr_duration() * 1000.0));
 		commands_printf("Latest injected ADC duration: %.4f ms", (double)(mc_interface_get_last_inj_adc_isr_duration() * 1000.0));
@@ -124,24 +134,27 @@ void terminal_process_string(char *str) {
 		} else {
 			commands_printf("The following faults were registered since start:\n");
 			for (int i = 0;i < fault_vec_write;i++) {
-				commands_printf("Fault            : %s", mc_interface_fault_to_string(fault_vec[i].fault));
-				commands_printf("Motor            : %d", fault_vec[i].motor);
-				commands_printf("Current          : %.1f", (double)fault_vec[i].current);
-				commands_printf("Current filtered : %.1f", (double)fault_vec[i].current_filtered);
-				commands_printf("Voltage          : %.2f", (double)fault_vec[i].voltage);
+				commands_printf("%d / %d", i + 1, fault_vec_write);
+				commands_printf("Fault             : %s", mc_interface_fault_to_string(fault_vec[i].fault));
+				commands_printf("Motor             : %d", fault_vec[i].motor);
+				commands_printf("Current           : %.1f", (double)fault_vec[i].current);
+				commands_printf("Current filtered  : %.1f", (double)fault_vec[i].current_filtered);
+				commands_printf("Voltage           : %.2f", (double)fault_vec[i].voltage);
 #ifdef HW_HAS_GATE_DRIVER_SUPPLY_MONITOR
-				commands_printf("Gate drv voltage : %.2f", (double)fault_vec[i].gate_driver_voltage);
+				commands_printf("Gate drv voltage  : %.2f", (double)fault_vec[i].gate_driver_voltage);
 #endif
-				commands_printf("Duty             : %.3f", (double)fault_vec[i].duty);
-				commands_printf("RPM              : %.1f", (double)fault_vec[i].rpm);
-				commands_printf("Tacho            : %d", fault_vec[i].tacho);
-				commands_printf("Cycles running   : %d", fault_vec[i].cycles_running);
-				commands_printf("TIM duty         : %d", (int)((float)fault_vec[i].tim_top * fault_vec[i].duty));
-				commands_printf("TIM val samp     : %d", fault_vec[i].tim_val_samp);
-				commands_printf("TIM current samp : %d", fault_vec[i].tim_current_samp);
-				commands_printf("TIM top          : %d", fault_vec[i].tim_top);
-				commands_printf("Comm step        : %d", fault_vec[i].comm_step);
-				commands_printf("Temperature      : %.2f", (double)fault_vec[i].temperature);
+				commands_printf("Duty              : %.3f", (double)fault_vec[i].duty);
+				commands_printf("RPM               : %.1f", (double)fault_vec[i].rpm);
+				commands_printf("Odometer          : %d", fault_vec[i].odometer);
+				commands_printf("Cycles running    : %d", fault_vec[i].cycles_running);
+				commands_printf("TIM duty          : %d", (int)((float)fault_vec[i].tim_top * fault_vec[i].duty));
+				commands_printf("TIM val samp      : %d", fault_vec[i].tim_val_samp);
+				commands_printf("TIM current samp  : %d", fault_vec[i].tim_current_samp);
+				commands_printf("TIM top           : %d", fault_vec[i].tim_top);
+				commands_printf("Comm step         : %d", fault_vec[i].comm_step);
+				commands_printf("Temperature       : %.2f", (double)fault_vec[i].temperature);
+				commands_printf("Current in        : %.2f", (double)fault_vec[i].current_in);
+				commands_printf("Motor temperature : %.2f", (double)fault_vec[i].motor_temperature);
 #ifdef HW_HAS_DRV8301
 				if (fault_vec[i].fault == FAULT_CODE_DRV) {
 					commands_printf("DRV8301_FAULTS   : %s", drv8301_faults_to_string(fault_vec[i].drv8301_faults));
@@ -155,6 +168,42 @@ void terminal_process_string(char *str) {
 					commands_printf("DRV8323S_FAULTS  : %s", drv8323s_faults_to_string(fault_vec[i].drv8301_faults));
 				}
 #endif
+				commands_printf(" ");
+			}
+		}
+	} else if (strcmp(argv[0], "faults_ram") == 0) {
+		uint16_t faults_num = FAULT_VESC_SRAM_LEN;
+		if (fault_vesc_write_sram_cnt < FAULT_VESC_SRAM_LEN) {
+			faults_num = fault_vesc_write_sram_cnt;
+		}
+		if (faults_num == 0) {
+			commands_printf("No faults in SRAM registered\n");
+		}
+		else {
+			commands_printf("The following faults were registered in SRAM:\n");
+			for (int i = 0; i < faults_num; i++) {
+				commands_printf("%d / %d", i + 1, faults_num);
+				commands_printf("Fault             : %s", mc_interface_fault_to_string(fault_vesc_sram[i].fault));
+				commands_printf("Motor             : %d", fault_vesc_sram[i].motor);
+				commands_printf("Current           : %.1f", (double)fault_vesc_sram[i].current);
+				commands_printf("Current filtered  : %.1f", (double)fault_vesc_sram[i].current_filtered);
+				commands_printf("Voltage           : %.2f", (double)fault_vesc_sram[i].voltage);
+#ifdef HW_HAS_GATE_DRIVER_SUPPLY_MONITOR
+				commands_printf("Gate drv voltage  : %.2f", (double)fault_vesc_sram[i].gate_driver_voltage);
+#endif
+				commands_printf("Duty              : %.3f", (double)fault_vesc_sram[i].duty);
+				commands_printf("RPM               : %.1f", (double)fault_vesc_sram[i].rpm);
+				commands_printf("Odometer          : %d", fault_vesc_sram[i].odometer);
+				commands_printf("Cycles running    : %d", fault_vesc_sram[i].cycles_running);
+				commands_printf("TIM duty          : %d", (int)((float)fault_vesc_sram[i].tim_top * fault_vesc_sram[i].duty));
+				commands_printf("TIM val samp      : %d", fault_vesc_sram[i].tim_val_samp);
+				commands_printf("TIM current samp  : %d", fault_vesc_sram[i].tim_current_samp);
+				commands_printf("TIM top           : %d", fault_vesc_sram[i].tim_top);
+				commands_printf("Comm step         : %d", fault_vesc_sram[i].comm_step);
+				commands_printf("Temperature       : %.2f", (double)fault_vesc_sram[i].temperature);
+				commands_printf("Current in        : %.2f", (double)fault_vesc_sram[i].current_in);
+				commands_printf("Motor temperature : %.2f", (double)fault_vesc_sram[i].motor_temperature);
+
 				commands_printf(" ");
 			}
 		}
@@ -202,6 +251,26 @@ void terminal_process_string(char *str) {
 #ifdef HW_HAS_GATE_DRIVER_SUPPLY_MONITOR
 		commands_printf("Gate driver power supply output voltage: %.2f\n", (double)GET_GATE_DRIVER_SUPPLY_VOLTAGE());
 #endif
+
+		float phase0_volt_startup;
+		float phase1_volt_startup;
+		float phase2_volt_startup;
+		float input_volt_startup;
+
+		mcpwm_foc_get_phase_volt_startup(&phase0_volt_startup, &phase1_volt_startup, &phase2_volt_startup, &input_volt_startup);
+
+		commands_printf("Startup phase voltages: %f %f %f",
+			(double)phase0_volt_startup, (double)phase1_volt_startup, (double)phase2_volt_startup);
+		commands_printf("Startup input voltage: %f\n", (double)input_volt_startup);
+
+		float Va = ADC_VOLTS(ADC_IND_SENS1) * ((VIN_R1 + VIN_R2) / VIN_R2);
+		float Vb = ADC_VOLTS(ADC_IND_SENS2) * ((VIN_R1 + VIN_R2) / VIN_R2);
+		float Vc = ADC_VOLTS(ADC_IND_SENS3) * ((VIN_R1 + VIN_R2) / VIN_R2);
+
+		commands_printf("Phase Va: %f", (double)Va);
+		commands_printf("Phase Vb: %f", (double)Vb);
+		commands_printf("Phase Vc: %f\n", (double)Vc);
+
 	} else if (strcmp(argv[0], "param_detect") == 0) {
 		// Use COMM_MODE_DELAY and try to figure out the motor parameters.
 		if (argc == 4) {
@@ -532,10 +601,10 @@ void terminal_process_string(char *str) {
 #ifdef HW_NAME
 		commands_printf("Hardware: %s", HW_NAME);
 #endif
-		commands_printf("UUID: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+		commands_printf("UUID: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X, stm rev: 0x%X",
 				STM32_UUID_8[0], STM32_UUID_8[1], STM32_UUID_8[2], STM32_UUID_8[3],
 				STM32_UUID_8[4], STM32_UUID_8[5], STM32_UUID_8[6], STM32_UUID_8[7],
-				STM32_UUID_8[8], STM32_UUID_8[9], STM32_UUID_8[10], STM32_UUID_8[11]);
+				STM32_UUID_8[8], STM32_UUID_8[9], STM32_UUID_8[10], STM32_UUID_8[11], DBGMCU->IDCODE >> 16);
 		commands_printf("Permanent NRF found: %s", conf_general_permanent_nrf_found ? "Yes" : "No");
 
 		int curr0_offset;
@@ -544,9 +613,6 @@ void terminal_process_string(char *str) {
 
 		mcpwm_foc_get_current_offsets(&curr0_offset, &curr1_offset, &curr2_offset,
 				mc_interface_get_motor_thread() == 2);
-
-		commands_printf("FOC Current Offsets: %d %d %d",
-				curr0_offset, curr1_offset, curr2_offset);
 
 #ifdef COMM_USE_USB
 		commands_printf("USB config events: %d", comm_usb_serial_configured_cnt());
@@ -559,6 +625,47 @@ void terminal_process_string(char *str) {
 				mempools_mcconf_allocated_num(), mempools_mcconf_highest(), MEMPOOLS_MCCONF_NUM - 1);
 		commands_printf("Mempool appconf now: %d highest: %d (max %d)",
 				mempools_appconf_allocated_num(), mempools_appconf_highest(), MEMPOOLS_APPCONF_NUM - 1);
+
+		commands_printf(" ");
+
+		commands_printf("FOC Current Offsets: %d %d %d\n",
+			curr0_offset, curr1_offset, curr2_offset);
+
+		uint16_t calValue = (*((uint16_t*)0x1FFF7A2A));
+		commands_printf("3.3 ref voltage:	%.2f\n", (double)(((float)calValue * 3.3) / (float)ADC_Value[ADC_IND_VREFINT]));
+
+#ifdef HW_HAS_GATE_DRIVER_SUPPLY_MONITOR
+		commands_printf("Gate driver power supply output voltage: %.2f", (double)GET_GATE_DRIVER_SUPPLY_VOLTAGE());
+#endif
+
+		float Va = ADC_VOLTS(ADC_IND_SENS1) * ((VIN_R1 + VIN_R2) / VIN_R2);
+		float Vb = ADC_VOLTS(ADC_IND_SENS2) * ((VIN_R1 + VIN_R2) / VIN_R2);
+		float Vc = ADC_VOLTS(ADC_IND_SENS3) * ((VIN_R1 + VIN_R2) / VIN_R2);
+
+		commands_printf("HALL 1 state:		%d", READ_HALL1());
+		commands_printf("HALL 2 state:		%d", READ_HALL2());
+		commands_printf("HALL 3 state:		%d\n", READ_HALL3());
+		commands_printf("BRAKE pin state:	%d", palReadPad(HW_SURON_BRAKE_PORT, HW_SURON_BRAKE_PIN));
+		commands_printf("CRASH pin:		%d", palReadPad(HW_SURON_CRASH_PORT, HW_SURON_CRASH_PIN));
+		commands_printf("MOD pin state:		%d", palReadPad(HW_SURON_MOD_PORT, HW_SURON_MOD_PIN));
+		commands_printf("MOD GEN pin state:	%d", palReadPad(GPIOB, 4));
+		commands_printf("NOGARA pin state:	%d", palReadPad(HW_SURON_NOGARA_PORT, HW_SURON_NOGARA_PIN));
+		commands_printf("KEY DETECT pin state:	%d", palReadPad(HW_SURON_KEY_PORT, HW_SURON_KEY_PIN));
+		commands_printf("FRAM state:		%d\n", mc_interface_get_fram_state());
+		commands_printf("Input volt ADC:		%u	(%.2f V)", ADC_Value[ADC_IND_VIN_SENS], (double)GET_INPUT_VOLTAGE());
+		commands_printf("Throttle ADC:		%u", ADC_Value[ADC_IND_EXT]);
+		commands_printf("Brake ADC:		%u", ADC_Value[ADC_IND_EXT2]);
+		commands_printf("Temp motor ADC:		%u	(%.2f C)", ADC_Value[ADC_IND_TEMP_MOTOR], (double)mc_interface_temp_motor_filtered());
+		commands_printf("Temp fet1 ADC:		%u	(%.2f C)", ADC_Value[ADC_IND_TEMP_MOS], (double)mc_interface_temp_fet_filtered());
+		commands_printf("Throttle current ADC:	%u	(%.2f mA)", ADC_Value[ADC_IND_EXT_CURR], (double)(ADC_Value[ADC_IND_EXT_CURR] * 0.0080586));
+		commands_printf("Water nrf ADC:		%u\n", app_suron_get_nrf_adc());
+
+		commands_printf("CURRENT 1 ADC:		%u", GET_CURRENT1());
+		commands_printf("CURRENT 2 ADC:		%u", GET_CURRENT2());
+		commands_printf("CURRENT 3 ADC:		%u", GET_CURRENT3());
+		commands_printf("PHASE 1 ADC:		%u	(%.2f V)", ADC_V_L1, (double)Va);
+		commands_printf("PHASE 2 ADC:		%u	(%.2f V)", ADC_V_L2, (double)Vb);
+		commands_printf("PHASE 3 ADC:		%u	(%.2f V)", ADC_V_L3, (double)Vc);
 
 		commands_printf(" ");
 	} else if (strcmp(argv[0], "foc_openloop") == 0) {
@@ -1080,6 +1187,9 @@ void terminal_process_string(char *str) {
 		commands_printf("faults");
 		commands_printf("  Prints all stored fault codes and conditions when they arrived");
 
+		commands_printf("faults_ram");
+		commands_printf("  Prints from ram all stored fault codes and conditions when they arrived");
+
 		commands_printf("rpm");
 		commands_printf("  Prints the current electrical RPM");
 
@@ -1213,10 +1323,21 @@ void terminal_process_string(char *str) {
 }
 
 void terminal_add_fault_data(fault_data *data) {
-	fault_vec[fault_vec_write++] = *data;
 	if (fault_vec_write >= FAULT_VEC_LEN) {
 		fault_vec_write = 0;
 	}
+	if (fault_vesc_write_sram >= FAULT_VESC_SRAM_LEN) {
+		fault_vesc_write_sram = 0;
+	}
+	if (fault_vesc_write_sram_cnt >= 1000) {
+		fault_vesc_write_sram_cnt = 0;
+	}
+
+	data->cnt = fault_vesc_write_sram_cnt;
+	fault_vec[fault_vec_write++] = *data;
+	fault_vesc_sram[fault_vesc_write_sram++] = *data;
+
+	fault_vesc_write_sram_cnt++;
 }
 
 /**

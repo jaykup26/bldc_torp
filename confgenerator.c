@@ -27,6 +27,8 @@ int32_t confgenerator_serialize_mcconf(uint8_t *buffer, const mc_configuration *
 	buffer_append_float32_auto(buffer, conf->l_max_vin, &ind);
 	buffer_append_float32_auto(buffer, conf->l_battery_cut_start, &ind);
 	buffer_append_float32_auto(buffer, conf->l_battery_cut_end, &ind);
+	buffer_append_float32_auto(buffer, conf->l_battery_cut_regen_start, &ind);
+	buffer_append_float32_auto(buffer, conf->l_battery_cut_regen_end, &ind);
 	buffer[ind++] = conf->l_slow_abs_current;
 	buffer_append_float32_auto(buffer, conf->l_temp_fet_start, &ind);
 	buffer_append_float32_auto(buffer, conf->l_temp_fet_end, &ind);
@@ -158,8 +160,21 @@ int32_t confgenerator_serialize_mcconf(uint8_t *buffer, const mc_configuration *
 	buffer[ind++] = conf->bms.type;
 	buffer_append_float16(buffer, conf->bms.t_limit_start, 100, &ind);
 	buffer_append_float16(buffer, conf->bms.t_limit_end, 100, &ind);
+	buffer_append_float16(buffer, conf->bms.t_dis_limit_start, 100, &ind);
+	buffer_append_float16(buffer, conf->bms.t_dis_limit_end, 100, &ind);
 	buffer_append_float16(buffer, conf->bms.soc_limit_start, 1000, &ind);
 	buffer_append_float16(buffer, conf->bms.soc_limit_end, 1000, &ind);
+	buffer_append_float32_auto(buffer, conf->foc_current_kp_start, &ind);
+	buffer_append_float32_auto(buffer, conf->foc_current_kp_power_end, &ind);
+	buffer_append_float32_auto(buffer, conf->foc_sat_comp_start_erpm, &ind);
+	buffer[ind++] = conf->m_temp_sens_ignored;
+	buffer_append_float32_auto(buffer, 0.0, &ind);
+	buffer_append_float32_auto(buffer, 0.0, &ind);
+	buffer_append_uint16(buffer, 0, &ind);
+	buffer_append_uint32(buffer, 0, &ind);
+	buffer[ind++] = 0;
+	buffer[ind++] = 0;
+	buffer[ind++] = 0;
 
 	return ind;
 }
@@ -223,6 +238,12 @@ int32_t confgenerator_serialize_appconf(uint8_t *buffer, const app_configuration
 	buffer[ind++] = conf->app_adc_conf.tc;
 	buffer_append_float32_auto(buffer, conf->app_adc_conf.tc_max_diff, &ind);
 	buffer_append_uint16(buffer, conf->app_adc_conf.update_rate_hz, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.throttle_protection_volt_rise, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.tpc, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.brake_current_throttle, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.brake_current_throttle2, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.brake_current_lever, &ind);
+	buffer_append_float32_auto(buffer, conf->app_adc_conf.brake_lever_ramp_time_pos, &ind);
 	buffer_append_uint32(buffer, conf->app_uart_baudrate, &ind);
 	buffer[ind++] = conf->app_chuk_conf.ctrl_type;
 	buffer_append_float32_auto(buffer, conf->app_chuk_conf.hyst, &ind);
@@ -318,6 +339,24 @@ int32_t confgenerator_serialize_appconf(uint8_t *buffer, const app_configuration
 	buffer_append_float32_auto(buffer, conf->imu_conf.gyro_offset_comp_fact[1], &ind);
 	buffer_append_float32_auto(buffer, conf->imu_conf.gyro_offset_comp_fact[2], &ind);
 	buffer_append_float32_auto(buffer, conf->imu_conf.gyro_offset_comp_clamp, &ind);
+	buffer[ind++] = conf->app_suron_conf.kickstand;
+	buffer[ind++] = conf->app_suron_conf.crash_sensor;
+	buffer[ind++] = conf->app_suron_conf.mod_button;
+	buffer[ind++] = conf->app_suron_conf.brake;
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_l_current_max, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_l_in_current_max, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_l_watt_max, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_l_max_erpm, &ind);
+	buffer[ind++] = conf->app_suron_conf.app_battery_type;
+	buffer[ind++] = conf->app_suron_conf.eco_adc_ctrl_type;
+	buffer[ind++] = conf->app_suron_conf.kill_switch_type;
+	buffer[ind++] = conf->app_suron_conf.app_motor_type;
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_brake_current_throttle, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_brake_current_throttle2, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_brake_current_lever, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_tc_max_diff, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_throttle_exp, &ind);
+	buffer_append_float32_auto(buffer, conf->app_suron_conf.eco_adc_ramp_time_pos, &ind);
 
 	return ind;
 }
@@ -348,6 +387,8 @@ bool confgenerator_deserialize_mcconf(const uint8_t *buffer, mc_configuration *c
 	conf->l_max_vin = buffer_get_float32_auto(buffer, &ind);
 	conf->l_battery_cut_start = buffer_get_float32_auto(buffer, &ind);
 	conf->l_battery_cut_end = buffer_get_float32_auto(buffer, &ind);
+	conf->l_battery_cut_regen_start = buffer_get_float32_auto(buffer, &ind);
+	conf->l_battery_cut_regen_end = buffer_get_float32_auto(buffer, &ind);
 	conf->l_slow_abs_current = buffer[ind++];
 	conf->l_temp_fet_start = buffer_get_float32_auto(buffer, &ind);
 	conf->l_temp_fet_end = buffer_get_float32_auto(buffer, &ind);
@@ -479,8 +520,14 @@ bool confgenerator_deserialize_mcconf(const uint8_t *buffer, mc_configuration *c
 	conf->bms.type = buffer[ind++];
 	conf->bms.t_limit_start = buffer_get_float16(buffer, 100, &ind);
 	conf->bms.t_limit_end = buffer_get_float16(buffer, 100, &ind);
+	conf->bms.t_dis_limit_start = buffer_get_float16(buffer, 100, &ind);
+	conf->bms.t_dis_limit_end = buffer_get_float16(buffer, 100, &ind);
 	conf->bms.soc_limit_start = buffer_get_float16(buffer, 1000, &ind);
 	conf->bms.soc_limit_end = buffer_get_float16(buffer, 1000, &ind);
+	conf->foc_current_kp_start = buffer_get_float32_auto(buffer, &ind);
+	conf->foc_current_kp_power_end = buffer_get_float32_auto(buffer, &ind);
+	conf->foc_sat_comp_start_erpm = buffer_get_float32_auto(buffer, &ind);
+	conf->m_temp_sens_ignored = buffer[ind++];
 
 	return true;
 }
@@ -547,6 +594,12 @@ bool confgenerator_deserialize_appconf(const uint8_t *buffer, app_configuration 
 	conf->app_adc_conf.tc = buffer[ind++];
 	conf->app_adc_conf.tc_max_diff = buffer_get_float32_auto(buffer, &ind);
 	conf->app_adc_conf.update_rate_hz = buffer_get_uint16(buffer, &ind);
+	conf->app_adc_conf.throttle_protection_volt_rise = buffer_get_float32_auto(buffer, &ind);
+	conf->app_adc_conf.tpc = buffer_get_float32_auto(buffer, &ind);
+	conf->app_adc_conf.brake_current_throttle = buffer_get_float32_auto(buffer, &ind);
+	conf->app_adc_conf.brake_current_throttle2 = buffer_get_float32_auto(buffer, &ind);
+	conf->app_adc_conf.brake_current_lever = buffer_get_float32_auto(buffer, &ind);
+	conf->app_adc_conf.brake_lever_ramp_time_pos = buffer_get_float32_auto(buffer, &ind);
 	conf->app_uart_baudrate = buffer_get_uint32(buffer, &ind);
 	conf->app_chuk_conf.ctrl_type = buffer[ind++];
 	conf->app_chuk_conf.hyst = buffer_get_float32_auto(buffer, &ind);
@@ -642,6 +695,24 @@ bool confgenerator_deserialize_appconf(const uint8_t *buffer, app_configuration 
 	conf->imu_conf.gyro_offset_comp_fact[1] = buffer_get_float32_auto(buffer, &ind);
 	conf->imu_conf.gyro_offset_comp_fact[2] = buffer_get_float32_auto(buffer, &ind);
 	conf->imu_conf.gyro_offset_comp_clamp = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.kickstand = buffer[ind++];
+	conf->app_suron_conf.crash_sensor = buffer[ind++];
+	conf->app_suron_conf.mod_button = buffer[ind++];
+	conf->app_suron_conf.brake = buffer[ind++];
+	conf->app_suron_conf.eco_l_current_max = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_l_in_current_max = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_l_watt_max = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_l_max_erpm = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.app_battery_type = buffer[ind++];
+	conf->app_suron_conf.eco_adc_ctrl_type = buffer[ind++];
+	conf->app_suron_conf.kill_switch_type = buffer[ind++];
+	conf->app_suron_conf.app_motor_type = buffer[ind++];
+	conf->app_suron_conf.eco_adc_brake_current_throttle = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_adc_brake_current_throttle2 = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_adc_brake_current_lever = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_adc_tc_max_diff = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_adc_throttle_exp = buffer_get_float32_auto(buffer, &ind);
+	conf->app_suron_conf.eco_adc_ramp_time_pos = buffer_get_float32_auto(buffer, &ind);
 
 	return true;
 }
@@ -665,6 +736,8 @@ void confgenerator_set_defaults_mcconf(mc_configuration *conf) {
 	conf->l_max_vin = MCCONF_L_MAX_VOLTAGE;
 	conf->l_battery_cut_start = MCCONF_L_BATTERY_CUT_START;
 	conf->l_battery_cut_end = MCCONF_L_BATTERY_CUT_END;
+	conf->l_battery_cut_regen_start = MCCONF_L_BATTERY_CUT_REGEN_START;
+	conf->l_battery_cut_regen_end = MCCONF_L_BATTERY_CUT_REGEN_END;
 	conf->l_slow_abs_current = MCCONF_L_SLOW_ABS_OVERCURRENT;
 	conf->l_temp_fet_start = MCCONF_L_LIM_TEMP_FET_START;
 	conf->l_temp_fet_end = MCCONF_L_LIM_TEMP_FET_END;
@@ -796,8 +869,14 @@ void confgenerator_set_defaults_mcconf(mc_configuration *conf) {
 	conf->bms.type = MCCONF_BMS_TYPE;
 	conf->bms.t_limit_start = MCCONF_BMS_T_LIMIT_START;
 	conf->bms.t_limit_end = MCCONF_BMS_T_LIMIT_END;
+	conf->bms.t_dis_limit_start = MCCONF_BMS_T_DIS_LIMIT_START;
+	conf->bms.t_dis_limit_end = MCCONF_BMS_T_DIS_LIMIT_END;
 	conf->bms.soc_limit_start = MCCONF_BMS_SOC_LIMIT_START;
 	conf->bms.soc_limit_end = MCCONF_BMS_SOC_LIMIT_END;
+	conf->foc_current_kp_start = MCCONF_FOC_CURRENT_KP_START;
+	conf->foc_current_kp_power_end = MCCONF_FOC_CURRENT_KP_POWER_END;
+	conf->foc_sat_comp_start_erpm = MCCONF_FOC_SAT_COMP_START_ERPM;
+	conf->m_temp_sens_ignored = MCCONF_M_TEMP_SENS_IGNORED;
 }
 
 void confgenerator_set_defaults_appconf(app_configuration *conf) {
@@ -855,6 +934,12 @@ void confgenerator_set_defaults_appconf(app_configuration *conf) {
 	conf->app_adc_conf.tc = APPCONF_ADC_TC;
 	conf->app_adc_conf.tc_max_diff = APPCONF_ADC_TC_MAX_DIFF;
 	conf->app_adc_conf.update_rate_hz = APPCONF_ADC_UPDATE_RATE_HZ;
+	conf->app_adc_conf.throttle_protection_volt_rise = APPCONF_ADC_THROTTLE_PROTECTION_VOLT_RISE;
+	conf->app_adc_conf.tpc = APPCONF_ADC_TPC;
+	conf->app_adc_conf.brake_current_throttle = APPCONF_ADC_BRAKE_CURRENT_THROTTLE;
+	conf->app_adc_conf.brake_current_throttle2 = APPCONF_ADC_BRAKE_CURRENT_THROTTLE2;
+	conf->app_adc_conf.brake_current_lever = APPCONF_ADC_BRAKE_CURRENT_LEVER;
+	conf->app_adc_conf.brake_lever_ramp_time_pos = APPCONF_ADC_BRAKE_LEVER_RAMP_TIME_POS;
 	conf->app_uart_baudrate = APPCONF_UART_BAUDRATE;
 	conf->app_chuk_conf.ctrl_type = APPCONF_CHUK_CTRL_TYPE;
 	conf->app_chuk_conf.hyst = APPCONF_CHUK_HYST;
@@ -950,4 +1035,21 @@ void confgenerator_set_defaults_appconf(app_configuration *conf) {
 	conf->imu_conf.gyro_offset_comp_fact[1] = APPCONF_IMU_G_OFFSET_COMP_FACT_1;
 	conf->imu_conf.gyro_offset_comp_fact[2] = APPCONF_IMU_G_OFFSET_COMP_FACT_2;
 	conf->imu_conf.gyro_offset_comp_clamp = APPCONF_IMU_G_OFFSET_COMP_CLAMP;
+	conf->app_suron_conf.kickstand = APPCONF_SURON_KICKSTAND;
+	conf->app_suron_conf.crash_sensor = APPCONF_SURON_CRASH_SENSOR;
+	conf->app_suron_conf.mod_button = APPCONF_SURON_MOD_BUTTON;
+	conf->app_suron_conf.brake = APPCONF_SURON_BRAKE;
+	conf->app_suron_conf.eco_l_current_max = APPCONF_SURON_ECO_L_CURRENT_MAX;
+	conf->app_suron_conf.eco_l_in_current_max = APPCONF_SURON_ECO_L_IN_CURRENT_MAX;
+	conf->app_suron_conf.eco_l_watt_max = APPCONF_SURON_ECO_L_WATT_MAX;
+	conf->app_suron_conf.eco_l_max_erpm = APPCONF_SURON_ECO_L_RPM_MAX;
+	conf->app_suron_conf.app_battery_type = APPCONF_SURON_APP_BATTERY_TYPE;
+	conf->app_suron_conf.eco_adc_ctrl_type = APPCONF_SURON_ECO_ADC_CTRL_TYPE;
+	conf->app_suron_conf.kill_switch_type = APPCONF_SURON_APP_KILL_SWITCH_TYPE;
+	conf->app_suron_conf.eco_adc_brake_current_throttle = APPCONF_SURON_ECO_ADC_BRAKE_CURRENT_THROTTLE;
+	conf->app_suron_conf.eco_adc_brake_current_throttle2 = APPCONF_SURON_ECO_ADC_BRAKE_CURRENT_THROTTLE2;
+	conf->app_suron_conf.eco_adc_brake_current_lever = APPCONF_SURON_ECO_ADC_BRAKE_CURRENT_LEVER;
+	conf->app_suron_conf.eco_adc_tc_max_diff = APPCONF_SURON_ECO_ADC_TC_MAX_DIFF;
+	conf->app_suron_conf.eco_adc_throttle_exp = APPCONF_ADC_THROTTLE_EXP;
+	conf->app_suron_conf.eco_adc_ramp_time_pos = APPCONF_ADC_RAMP_TIME_POS;
 }

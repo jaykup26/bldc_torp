@@ -415,7 +415,7 @@ static THD_FUNCTION(switch_color_thread, arg) {
 	float switch_green_old = switch_green;
 	float switch_blue_old = switch_blue;
 	float wh_left;
-	float left = mc_interface_get_battery_level(&wh_left);
+	float left = mc_interface_get_battery_level(&wh_left, 0.0, false);
 	if(left < 0.5){
 		float intense = utils_map(left,0.0, 0.5, 0.0, 1.0);
 		utils_truncate_number(&intense,0,1);
@@ -463,7 +463,7 @@ static THD_FUNCTION(switch_color_thread, arg) {
 
 			chThdSleepMilliseconds(500);
 		} else {
-			left = mc_interface_get_battery_level(&wh_left);
+			left = mc_interface_get_battery_level(&wh_left, 0.0, false);
 			if(left < 0.5){
 				float intense = utils_map(left,0.0, 0.5, 0.0, 1.0);
 				utils_truncate_number(&intense,0,1);

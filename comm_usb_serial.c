@@ -140,23 +140,19 @@ static const uint8_t vcom_string0[] = {
  * Vendor string.
  */
 static const uint8_t vcom_string1[] = {
-		USB_DESC_BYTE(38),                    /* bLength.                         */
+		USB_DESC_BYTE(10),                    /* bLength.                         */
 		USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
-		'S', 0, 'T', 0, 'M', 0, 'i', 0, 'c', 0, 'r', 0, 'o', 0, 'e', 0,
-		'l', 0, 'e', 0, 'c', 0, 't', 0, 'r', 0, 'o', 0, 'n', 0, 'i', 0,
-		'c', 0, 's', 0
+		'T', 0, 'O', 0, 'R', 0, 'P', 0
 };
 
 /*
  * Device Description string.
  */
 static const uint8_t vcom_string2[] = {
-		USB_DESC_BYTE(56),                    /* bLength.                         */
+		USB_DESC_BYTE(22),                    /* bLength.                         */
 		USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
-		'C', 0, 'h', 0, 'i', 0, 'b', 0, 'i', 0, 'O', 0, 'S', 0, '/', 0,
-		'R', 0, 'T', 0, ' ', 0, 'V', 0, 'i', 0, 'r', 0, 't', 0, 'u', 0,
-		'a', 0, 'l', 0, ' ', 0, 'C', 0, 'O', 0, 'M', 0, ' ', 0, 'P', 0,
-		'o', 0, 'r', 0, 't', 0
+		'T', 0, 'O', 0, 'R', 0, 'P', 0, ' ', 0, 'T', 0, 'C', 0, '5', 0,
+		'0', 0, '0', 0
 };
 
 /*
@@ -325,7 +321,7 @@ void comm_usb_serial_init(void) {
 	 * after a reset.
 	 */
 	usbDisconnectBus(serusbcfg.usbp);
-	chThdSleepMilliseconds(1500);
+	chThdSleepMilliseconds(100);
 	usbStart(serusbcfg.usbp, &usbcfg);
 	usbConnectBus(serusbcfg.usbp);
 }

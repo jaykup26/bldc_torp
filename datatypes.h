@@ -77,6 +77,7 @@ typedef enum {
 	TEMP_SENSOR_PTC_1K_100C,
 	TEMP_SENSOR_KTY83_122,
 	TEMP_SENSOR_NTC_100K_25C,
+	TEMP_SENSOR_KTY84_130
 } temp_sensor_type;
 
 // General purpose drive output mode
@@ -104,7 +105,8 @@ typedef enum {
 
 typedef enum {
 	FOC_OBSERVER_ORTEGA_ORIGINAL = 0,
-	FOC_OBSERVER_ORTEGA_ITERATIVE
+	FOC_OBSERVER_ORTEGA_ITERATIVE,
+	FOC_OBSERVER_ORTEGA_ORIGINAL_NEW
 } mc_foc_observer_type;
 
 typedef enum {
@@ -133,7 +135,13 @@ typedef enum {
 	FAULT_CODE_RESOLVER_LOS,
 	FAULT_CODE_FLASH_CORRUPTION_APP_CFG,
 	FAULT_CODE_FLASH_CORRUPTION_MC_CFG,
-	FAULT_CODE_ENCODER_NO_MAGNET
+	FAULT_CODE_ENCODER_NO_MAGNET,
+	FAULT_CODE_PHASE_1_FET,
+	FAULT_CODE_PHASE_2_FET,
+	FAULT_CODE_PHASE_3_FET,
+	FAULT_CODE_TORP_1,
+	FAULT_CODE_TORP_2,
+	FAULT_CODE_TORP_3,
 } mc_fault_code;
 
 typedef enum {
@@ -214,7 +222,12 @@ typedef enum {
 typedef enum {
 	BATTERY_TYPE_LIION_3_0__4_2,
 	BATTERY_TYPE_LIIRON_2_6__3_6,
-	BATTERY_TYPE_LEAD_ACID
+	BATTERY_TYPE_LEAD_ACID,
+	BATTERY_TYPE_LIION_VTC6,
+	BATTERY_TYPE_LIION_30Q,
+	BATTERY_TYPE_LIION_MOLICEL_P42A,
+	BATTERY_TYPE_LIION_PANASONIC_PF,
+	BATTERY_TYPE_LIION_LG_M50
 } BATTERY_TYPE;
 
 typedef enum {
@@ -225,13 +238,16 @@ typedef enum {
 
 typedef enum {
 	BMS_TYPE_NONE = 0,
-	BMS_TYPE_VESC
+	BMS_TYPE_VESC,
+	BMS_TYPE_SURRON = 4
 } BMS_TYPE;
 
 typedef struct {
 	BMS_TYPE type;
 	float t_limit_start;
 	float t_limit_end;
+	float t_dis_limit_start;
+	float t_dis_limit_end;
 	float soc_limit_start;
 	float soc_limit_end;
 } bms_config;
@@ -256,7 +272,41 @@ typedef struct {
 	float soh;
 	int can_id;
 	systime_t update_time;
+
+	uint32_t live_error;
+	uint32_t live_warning;
+	uint16_t crc_fail_num;
+	uint16_t timeout_num;
 } bms_values;
+
+typedef struct {
+    uint16_t full_cap;
+	uint16_t remain_cap;
+    uint16_t cycle_count;
+    uint8_t hardware[2];
+    uint8_t software[2];
+    int8_t max_temp;
+    int8_t min_temp;
+    uint16_t max_cell_volt;
+    uint16_t min_cell_volt;
+    int32_t max_dis_current;
+    int32_t max_ch_current;
+    uint8_t sn[32];
+    uint8_t manu_date[3];
+    uint8_t rtc[6];
+	uint8_t error_counter[64];
+	uint8_t battery_type;
+} bms_info;
+
+typedef struct {
+	int8_t max_cell_temp;
+	int8_t min_cell_temp;
+	int8_t max_dis_fet_temp;
+	uint16_t max_cell_volt;
+	uint16_t min_cell_volt;
+	int32_t max_current_in;
+	int32_t min_current_in;
+} bms_peak;
 
 typedef struct {
 	int id;
@@ -287,6 +337,8 @@ typedef struct {
 	float l_max_vin;
 	float l_battery_cut_start;
 	float l_battery_cut_end;
+	float l_battery_cut_regen_start;
+	float l_battery_cut_regen_end;
 	bool l_slow_abs_current;
 	float l_temp_fet_start;
 	float l_temp_fet_end;
@@ -329,6 +381,8 @@ typedef struct {
 	// FOC
 	float foc_current_kp;
 	float foc_current_ki;
+	float foc_current_kp_start;
+	float foc_current_kp_power_end;
 	float foc_f_sw;
 	float foc_dt_us;
 	float foc_encoder_offset;
@@ -364,6 +418,7 @@ typedef struct {
 	bool foc_sample_v0_v7;
 	bool foc_sample_high_current;
 	float foc_sat_comp;
+	float foc_sat_comp_start_erpm;
 	bool foc_temp_comp;
 	float foc_temp_comp_base_temp;
 	float foc_current_filter_const;
@@ -421,6 +476,7 @@ typedef struct {
 	float m_ntc_motor_beta;
 	out_aux_mode m_out_aux_mode;
 	temp_sensor_type m_motor_temp_sens_type;
+	bool m_temp_sens_ignored;
 	float m_ptc_motor_coeff;
 	int m_hall_extra_samples;
 	// Setup info
@@ -437,6 +493,92 @@ typedef struct {
 	// Protect from flash corruption.
 	uint16_t crc;
 } mc_configuration;
+
+typedef struct {
+
+	float voltagemax;
+	float voltagemin;
+	float powermax;
+	float powermin;
+	float motorcurrentmax;
+	float motorcurrentmaxfiltered;
+	float batterycurrentmax;
+	float batterycurrentmin;
+	float abspeak;
+	float abs_peak_filtered;
+	float motorpeakmax;
+	float batterypeak;
+	float motortempmax;
+	float fettempmax;
+	float rpmmax;
+	float speedmax;
+
+    float fettempmin;
+	float motortempmin;
+	float motorcurrentmin;
+	float motorcurrentminfiltered;
+    float speedmin;
+    float rpmmin;
+    float motorpeakmin;
+	float motorpeak;
+
+	int bccounter;
+	float m_input_current_sumx;
+
+	bool reset_done;
+} mc_peak_t;
+
+typedef struct {
+	uint16_t voltagemax;
+	uint16_t voltagemin;
+
+	uint16_t powermax;
+
+	uint16_t motorcurrentmax;
+	int16_t motorcurrentmin;
+
+	uint16_t motorcurrentmaxfiltered;
+	int16_t motorcurrentminfiltered;
+
+	uint16_t batterycurrentmax;
+	int16_t batterycurrentmin;
+
+	uint16_t abspeak;
+	uint16_t abs_peak_filtered;
+
+	uint16_t motorpeakmax;
+	int16_t motorpeakmin;
+
+	uint16_t batterypeak;
+
+	int16_t motortempmax;
+	int16_t motortempmin;
+
+	int16_t fettempmax;
+	int16_t fettempmin;
+
+	uint16_t rpmmax;
+
+	uint16_t speedmax;
+	int16_t speedmin;
+
+	int8_t bms_max_cell_temp;
+	int8_t bms_min_cell_temp;
+	int8_t bms_max_dis_fet_temp;
+
+	int16_t bms_max_current_in;
+	int16_t bms_min_current_in;
+
+	uint16_t bms_max_cell_volt;
+	uint16_t bms_min_cell_volt;
+
+	uint16_t cnt;
+
+	int32_t powermin;
+	int32_t rpmmin;
+
+	uint32_t odometer;
+} mc_peak_history_t;
 
 // Applications to use
 typedef enum {
@@ -550,6 +692,12 @@ typedef struct {
 	bool tc;
 	float tc_max_diff;
 	uint32_t update_rate_hz;
+	float brake_current_throttle;
+	float brake_current_throttle2;
+	float brake_current_lever;
+	float throttle_protection_volt_rise;
+	float tpc;
+	float brake_lever_ramp_time_pos;
 } adc_config;
 
 // Nunchuk control types
@@ -747,7 +895,8 @@ typedef struct {
 typedef enum {
 	CAN_MODE_VESC = 0,
 	CAN_MODE_UAVCAN,
-	CAN_MODE_COMM_BRIDGE
+	CAN_MODE_COMM_BRIDGE,
+	CAN_MODE_TORP
 } CAN_MODE;
 
 typedef enum {
@@ -755,6 +904,53 @@ typedef enum {
 	UAVCAN_RAW_MODE_CURRENT_NO_REV_BRAKE,
 	UAVCAN_RAW_MODE_DUTY
 } UAVCAN_RAW_MODE;
+
+typedef enum {
+	SURON_BATTERY_TYPE_STOCK = 0,
+	SURON_BATTERY_TYPE_STOCK_MOD,
+	SURON_BATTERY_TYPE_72V,
+	SURON_BATTERY_TYPE_CUSTOM
+} suron_battery_type;
+
+typedef enum {
+	SURON_KILL_SWITCH_TYPE_NONE = 0,
+	SURON_KILL_SWITCH_TYPE_MOD_BUTTON,
+	SURON_KILL_SWITCH_TYPE_BRAKE_LEVER,
+	SURON_KILL_SWITCH_TYPE_MOD_BUTTON_BRAKE_LEVER
+} suron_kill_switch_type_t;
+
+typedef enum {
+	SURON_MOD_BUTTON_TYPE_NONE = 0,
+	SURON_MOD_BUTTON_TYPE_BUTTON,
+	SURON_MOD_BUTTON_TYPE_EXTERNAL_APP,
+} suron_mod_button_type_t;
+
+typedef enum {
+	SURON_MOD_BUTTON_STATE_SPORT = 0,
+	SURON_MOD_BUTTON_STATE_ECO,
+	SURON_MOD_BUTTON_STATE_ROAD_LEGAL,
+} suron_mod_button_state_t;
+
+typedef struct {
+	bool kickstand;
+	bool crash_sensor;
+	suron_mod_button_type_t mod_button;
+	bool brake;
+	float eco_l_current_max;
+	float eco_l_in_current_max;
+	float eco_l_watt_max;
+	float eco_l_max_erpm;
+	suron_battery_type app_battery_type;
+	adc_control_type eco_adc_ctrl_type;
+	float eco_adc_brake_current_throttle;
+	float eco_adc_brake_current_throttle2;
+	float eco_adc_brake_current_lever;
+	suron_kill_switch_type_t kill_switch_type;
+	uint8_t app_motor_type;
+	float eco_adc_tc_max_diff;
+	float eco_adc_throttle_exp;
+	float eco_adc_ramp_time_pos;
+} suron_conf;
 
 typedef struct {
 	// Settings
@@ -802,6 +998,9 @@ typedef struct {
 
 	// Protect from flash corruption
 	uint16_t crc;
+
+	// SuRon Settings
+	suron_conf app_suron_conf;
 } app_configuration;
 
 // Communication commands
@@ -924,6 +1123,29 @@ typedef enum {
 	COMM_ERASE_BOOTLOADER_ALL_CAN_HW,
 
 	COMM_SET_ODOMETER,
+	
+	COMM_PEAK = 150,
+	COMM_SET_APPCONF_TEMP,
+	COMM_CLEAR_TACHOMETER,
+	COMM_CLEAR_WATT_HOUR,
+	COMM_GET_ERRORS,
+	COMM_BMS_GET_INFO,
+	COMM_BMS_GET_READ_ADDRESS,
+	COMM_GET_ERRORS_HISTORY,
+	COMM_GET_HW_STATUS,
+	COMM_EXT_NRF_RESERVED,
+	COMM_EXT_NRF_RESERVED_2,
+	COMM_EXT_NRF_RESERVED_3,
+	COMM_EXT_NRF_RESERVED_4,
+	COMM_EXT_NRF_GET_VERSION,
+	COMM_SET_MCCONF_TEMP_ALL,
+	COMM_GET_PEAK_HISTORY,
+	COMM_ENABLE_DETECT_COMMANDS_OLD,
+	COMM_ENABLE_DETECT_COMMANDS,
+	COMM_GET_FRAM_DATA,
+	COMM_CLEAR_FRAM_DATA,
+	COMM_SET_MODE,
+	COMM_EXT_NRF_GET_ADC_VAL,
 } COMM_PACKET_ID;
 
 // CAN commands
@@ -986,7 +1208,7 @@ typedef struct {
 	float gate_driver_voltage;
 	float duty;
 	float rpm;
-	int tacho;
+	uint32_t odometer;
 	int cycles_running;
 	int tim_val_samp;
 	int tim_current_samp;
@@ -994,7 +1216,24 @@ typedef struct {
 	int comm_step;
 	float temperature;
 	int drv8301_faults;
+	float current_in;
+	float motor_temperature;
+	uint16_t cnt;
 } fault_data;
+
+typedef struct __attribute__((packed)) {
+	mc_fault_code fault;
+	float current;
+	float current_filtered;
+	float voltage;
+	float gate_driver_voltage;
+	float duty;
+	float rpm;
+	uint32_t odometer;
+	float temperature;
+	float current_in;
+	float motor_temperature;
+} fault_data_fram;
 
 // External LED state
 typedef enum {
@@ -1158,5 +1397,154 @@ typedef struct {
 	float current_in_tot;
 	uint8_t num_vescs;
 } setup_values;
+
+typedef enum {
+	WARNING_CODE_0 = 0,
+	WARNING_CODE_1,
+	WARNING_CODE_2,
+	WARNING_CODE_3,
+	WARNING_CODE_4,
+	WARNING_CODE_5,
+	WARNING_CODE_6,
+	WARNING_CODE_7,
+	WARNING_CODE_8,
+	WARNING_CODE_9,
+	WARNING_CODE_10,
+	WARNING_CODE_11,
+	WARNING_CODE_12,
+	WARNING_CODE_13,
+	WARNING_CODE_14,
+	WARNING_CODE_15,
+	WARNING_CODE_16,
+	WARNING_CODE_17,
+	WARNING_CODE_18,
+	WARNING_CODE_19,
+	WARNING_CODE_20,
+	WARNING_CODE_21,
+	WARNING_CODE_22,
+	WARNING_CODE_23,
+	WARNING_CODE_24,
+	WARNING_CODE_25,
+	WARNING_CODE_26,
+	WARNING_CODE_27,
+	WARNING_CODE_28,
+	WARNING_CODE_29,
+	WARNING_CODE_30,
+	WARNING_CODE_31,
+	WARNING_CODE_32,
+	WARNING_CODE_33,
+	WARNING_CODE_34,
+	WARNING_CODE_35,
+} mc_warning_code;
+
+typedef enum {
+	COMM_SURRON_BMS_0 = 0,
+	COMM_SURRON_BMS_GET_TEMP = 8,
+	COMM_SURRON_BMS_GET_VOLTAGE,
+	COMM_SURRON_BMS_GET_CURRENT,
+	COMM_SURRON_BMS_GET_SOC = 13,
+	COMM_SURRON_BMS_GET_SOH,
+	COMM_SURRON_BMS_GET_REMAIN_CAP,
+	COMM_SURRON_BMS_GET_FULL_CAP,
+	COMM_SURRON_BMS_GET_USB_CURRENT = 20,
+	COMM_SURRON_BMS_GET_WAR_ERR = 22,
+	COMM_SURRON_BMS_GET_CYCLES,
+	COMM_SURRON_BMS_GET_CAP,
+	COMM_SURRON_BMS_GET_VOL,
+	COMM_SURRON_BMS_GET_SOFTWARE_VER,
+	COMM_SURRON_BMS_GET_MANU_DATE,
+	COMM_SURRON_BMS_GET_RTC = 29,
+	COMM_SURRON_BMS_GET_30,
+	COMM_SURRON_BMS_GET_MANUF_NAME = 32,
+	COMM_SURRON_BMS_GET_BATTERY_NAME,
+	COMM_SURRON_BMS_GET_CELL_NAME,
+	COMM_SURRON_BMS_GET_SN,
+	COMM_SURRON_BMS_GET_CELL_VOLTAGE,
+	COMM_SURRON_BMS_GET_37,
+	COMM_SURRON_BMS_GET_MIN_MAX,
+	COMM_SURRON_BMS_GET_ERROR_COUNTER,
+	COMM_SURRON_BMS_GET_READ_ADDRESS = 119,
+	COMM_SURRON_BMS_GET_READ_DATA
+} COMM_SURRON_BMS_PACKET_ID;
+
+#define BACKUP_VAR_INIT_CODE				92891934
+typedef struct __attribute__((packed)) {
+	uint32_t odometer_init_flag;
+	uint32_t odometer; // Meters
+} backup_data;
+
+typedef struct __attribute__((packed)) {
+	uint16_t voltagemax;
+	uint16_t voltagemin;
+
+	uint16_t powermax;
+
+	uint16_t motorcurrentmax;
+	int16_t motorcurrentmin;
+
+	uint16_t motorcurrentmaxfiltered;
+	int16_t motorcurrentminfiltered;
+
+	uint16_t batterycurrentmax;
+	int16_t batterycurrentmin;
+
+	uint16_t abspeak;
+	uint16_t abs_peak_filtered;
+
+	uint16_t motorpeakmax;
+	int16_t motorpeakmin;
+
+	uint16_t batterypeak;
+
+	int16_t motortempmax;
+	int16_t motortempmin;
+
+	int16_t fettempmax;
+	int16_t fettempmin;
+
+	uint16_t rpmmax;
+
+	uint16_t speedmax;
+	int16_t speedmin;
+
+	int8_t bms_max_cell_temp;
+	int8_t bms_min_cell_temp;
+	int8_t bms_max_dis_fet_temp;
+
+	int16_t bms_max_current_in;
+	int16_t bms_min_current_in;
+
+	uint16_t bms_max_cell_volt;
+	uint16_t bms_min_cell_volt;
+
+	int32_t powermin;
+	int32_t rpmmin;
+} mc_peak_all_time_t;
+
+typedef struct __attribute__((packed)) {
+	uint16_t fram_start_address;
+
+	uint32_t crc;
+
+	uint8_t struct_version;
+
+	uint16_t struct_len;
+
+	uint32_t odometer;
+
+	uint32_t startup_num;
+
+	uint32_t working_seconds;
+
+	uint16_t warning_cnt[64];
+
+	uint16_t error_cnt[50];
+
+	uint8_t last_mode;
+
+	fault_data_fram last_fault_data;
+
+	mc_peak_all_time_t peak_all_time;
+} fram_data_t;
 
 #endif /* DATATYPES_H_ */

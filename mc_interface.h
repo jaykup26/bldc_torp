@@ -36,7 +36,11 @@ void mc_interface_lock(void);
 void mc_interface_unlock(void);
 void mc_interface_lock_override_once(void);
 mc_fault_code mc_interface_get_fault(void);
+mc_fault_code mc_interface_get_fault_old(void);
 const char* mc_interface_fault_to_string(mc_fault_code fault);
+uint64_t mc_interface_get_warning(void);
+void mc_interface_set_warning(mc_warning_code war);
+void mc_interface_clear_warning(mc_warning_code war);
 mc_state mc_interface_get_state(void);
 void mc_interface_set_duty(float dutyCycle);
 void mc_interface_set_duty_noramp(float dutyCycle);
@@ -77,20 +81,26 @@ float mc_interface_read_reset_avg_vq(void);
 float mc_interface_get_pid_pos_set(void);
 float mc_interface_get_pid_pos_now(void);
 float mc_interface_get_last_sample_adc_isr_duration(void);
-void mc_interface_sample_print_data(debug_sampling_mode mode, uint16_t len, uint8_t decimation);
+void mc_interface_sample_print_data(debug_sampling_mode mode, uint16_t len, uint8_t decimation,
+                                    void(*reply_func)(unsigned char* data, unsigned int len));
 float mc_interface_temp_fet_filtered(void);
 float mc_interface_temp_motor_filtered(void);
-float mc_interface_get_battery_level(float *wh_left);
+float mc_interface_get_battery_level(float* wh_left, float cell_volt, bool reset);
 float mc_interface_get_speed(void);
 float mc_interface_get_distance(void);
 float mc_interface_get_distance_abs(void);
 
+float mc_interface_get_throttle_rise(void);
+bool mc_interface_get_fram_state(void);
+
 // odometer
 uint32_t mc_interface_get_odometer(void);
 void mc_interface_set_odometer(uint32_t new_odometer_meters);
-bool mc_interface_save_odometer(void);
 
 setup_values mc_interface_get_setup_values(void);
+
+uint8_t mc_interface_fault_to_number(mc_fault_code fault);
+void mc_interface_ignore_input_both(int time_ms);
 
 // MC implementation functions
 void mc_interface_fault_stop(mc_fault_code fault, bool is_second_motor, bool is_isr);
@@ -100,14 +110,26 @@ void mc_interface_mc_timer_isr(bool is_second_motor);
 // Interrupt handlers
 void mc_interface_adc_inj_int_handler(void);
 
+void mc_interface_print_peak(void);
+void mc_interface_reset_peak(void);
+void mc_interface_reset_fram(uint16_t reset_type);
+
 // External variables
 extern volatile uint16_t ADC_Value[];
 extern volatile int ADC_curr_norm_value[];
+
+extern volatile mc_peak_t mc_peak;
+extern volatile uint8_t peak_histoy_bkp_sram_num;
+extern volatile uint16_t peak_histoy_bkp_sram_cnt;
+extern volatile mc_peak_history_t mc_peak_history[];
+
+extern volatile fram_data_t fram_data;
 
 // Common fixed parameters
 #ifndef HW_DEAD_TIME_NSEC
 #define HW_DEAD_TIME_NSEC				360.0	// Dead time
 #endif
 
+#define MC_PEAK_HISTORY_LEN		8
 
 #endif /* MC_INTERFACE_H_ */

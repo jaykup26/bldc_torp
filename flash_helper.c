@@ -119,6 +119,7 @@ uint16_t flash_helper_erase_new_app(uint32_t new_app_size) {
 			if (res != FLASH_COMPLETE) {
 				FLASH_Lock();
 				timeout_configure_IWDT();
+				mc_interface_ignore_input_both(5000);
 				utils_sys_unlock_cnt();
 				return res;
 			}
@@ -129,6 +130,7 @@ uint16_t flash_helper_erase_new_app(uint32_t new_app_size) {
 
 	FLASH_Lock();
 	timeout_configure_IWDT();
+	mc_interface_ignore_input_both(5000);
 	utils_sys_unlock_cnt();
 
 	return FLASH_COMPLETE;
@@ -171,12 +173,16 @@ uint16_t flash_helper_write_new_app_data(uint32_t offset, uint8_t *data, uint32_
 		uint16_t res = FLASH_ProgramByte(flash_addr[NEW_APP_BASE] + offset + i, data[i]);
 		if (res != FLASH_COMPLETE) {
 			FLASH_Lock();
+			timeout_configure_IWDT();
+			mc_interface_ignore_input_both(5000);
+			utils_sys_unlock_cnt();
 			return res;
 		}
 	}
 	FLASH_Lock();
 
 	timeout_configure_IWDT();
+	mc_interface_ignore_input_both(5000);
 
 	utils_sys_unlock_cnt();
 
@@ -197,6 +203,8 @@ void flash_helper_jump_to_bootloader(void) {
 	sdStop(&HW_UART_DEV);
 	palSetPadMode(HW_UART_TX_PORT, HW_UART_TX_PIN, PAL_MODE_INPUT);
 	palSetPadMode(HW_UART_RX_PORT, HW_UART_RX_PIN, PAL_MODE_INPUT);
+
+	HW_BEFORE_FW_UPDATE();
 
 	// Disable watchdog
 	timeout_configure_IWDT_slowest();

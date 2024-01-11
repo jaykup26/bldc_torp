@@ -37,7 +37,7 @@ void app_ppm_configure(ppm_config *conf);
 
 void app_adc_start(bool use_rx_tx);
 void app_adc_stop(void);
-void app_adc_configure(adc_config *conf);
+void app_adc_configure(adc_config *conf, bool safe_start);
 float app_adc_get_decoded_level(void);
 float app_adc_get_voltage(void);
 float app_adc_get_decoded_level2(void);
@@ -80,5 +80,20 @@ float app_pas_get_current_target_rel(void);
 void app_custom_start(void);
 void app_custom_stop(void);
 void app_custom_configure(app_configuration *conf);
+#ifdef HW_TC500
+void app_suron_configure(suron_conf* conf);
+void app_suron_start(void);
+void app_suron_reapply_mcconf(void);
+void app_suron_signal_fault(void);
+suron_mod_button_state_t app_suron_get_modbutton_state(void);
+void app_suron_set_mod_state(suron_mod_button_state_t mode);
+bool app_suron_get_warning(void);
+void app_suron_set_nrf_adc(uint16_t adc_val);
+uint16_t app_suron_get_nrf_adc(void);
+void app_surron_bms_start(void);
+void app_surron_bms_stop(void);
+void app_surron_bms_commands_process_packet(unsigned char* data, unsigned int len, uint8_t packet_type,
+    void(*reply_func)(unsigned char* data, unsigned int len));
+#endif
 
 #endif /* APP_H_ */

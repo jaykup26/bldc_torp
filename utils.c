@@ -858,3 +858,11 @@ const float utils_tab_cos_32_2[] = {
 	-1.000000, -0.923880, -0.707107, -0.382683, -0.000000, 0.382683, 0.707107, 0.923880,
 	1.000000, 0.923880, 0.707107, 0.382683, 0.000000, -0.382683, -0.707107, -0.923880,
 	-1.000000, -0.923880, -0.707107, -0.382683, -0.000000, 0.382683, 0.707107, 0.923880};
+
+uint16_t utils_MB85RC16_fram_I2CAddressAdapt(volatile uint16_t *fram_start_address) {
+	uint8_t MB85RC16_i2c_addr = 0x50;
+	uint16_t i2c_addr = (MB85RC16_i2c_addr | ((*fram_start_address >> 8) & 0x7));
+	*fram_start_address = (*fram_start_address >> 8) | (*fram_start_address << 8);
+
+	return i2c_addr;
+}
